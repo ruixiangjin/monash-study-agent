@@ -5,5 +5,8 @@ coverage/
 __pycache__/
 *.tsbuildinfo
 .DS_Store
+.env
+.env.*
+!.env.example
 data/runtime/
 data/normalized/

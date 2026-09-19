@@ -67,6 +67,18 @@ pnpm test
 
 `config/sources.json` identifies the current local course directories. Copy `config/sources.example.json` when configuring another machine. Scanning reads source files and downloader manifests without modifying the course libraries.
 
+### LightRAG model runtime
+
+The real LightRAG model runtime requires a local DeepSeek API key. Copy `.env.example` to `.env`, fill in `DEEPSEEK_API_KEY`, and run:
+
+```sh
+pnpm lightrag -- health
+pnpm lightrag -- model-health
+pnpm lightrag -- ingest-document <documentId>
+```
+
+The CLI loads the repository-root `.env` automatically. The file is ignored by Git; do not commit the key.
+
 The Python environment is local to `services/knowledge-service/.venv` and is not committed. Docling is pinned in `services/knowledge-service/uv.lock`; on macOS the project uses its native OCR backend, while other platforms use RapidOCR. Normalized Markdown is intended for inspection and later LightRAG ingestion, and the adjacent JSON files retain complete metadata and locators. Generated output and state remain untracked.
 
 ## Runtime integration
