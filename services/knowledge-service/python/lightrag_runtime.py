@@ -224,3 +224,24 @@ async def ingest_document(
         "model": DEEPSEEK_MODEL,
         "embeddingModel": EMBEDDING_MODEL,
     }
+
+
+async def delete_document(
+    working_dir_root: str,
+    course: str | None,
+    document_id: str,
+) -> dict[str, Any]:
+    rag, course_working_dir = await create_rag(working_dir_root, course)
+    try:
+        deletion = await rag.adelete_by_doc_id(document_id)
+    finally:
+        await close_rag(rag)
+
+    return {
+        "documentId": document_id,
+        "course": course,
+        "workingDir": str(course_working_dir),
+        "deleted": deletion.status == "success",
+        "status": deletion.status,
+        "message": deletion.message,
+    }

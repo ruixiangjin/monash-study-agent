@@ -1,10 +1,11 @@
 import { LightRAGWorkerClient } from '../services/knowledge-service/src/lightrag/lightrag-worker-client.js'
+import { LightRAGSyncService } from '../services/knowledge-service/src/lightrag/lightrag-sync-service.js'
 import { NormalizedDocumentLoader } from '../services/knowledge-service/src/normalization/normalized-document-loader.js'
 
 const args = process.argv.slice(2)
 const commandArguments = args[0] === '--' ? args.slice(1) : args
 const command = commandArguments[0]
-if (!['health', 'model-health', 'ingest-document'].includes(command ?? '')) showUsage()
+if (!['health', 'model-health', 'ingest-document', 'sync-document', 'index-state'].includes(command ?? '')) showUsage()
 
 try {
   const client = new LightRAGWorkerClient()
@@ -42,6 +43,41 @@ try {
       `Working directory: ${result.workingDir}`,
       '',
     ].join('\n'))
+  } else if (command === 'sync-document' && commandArguments.length === 2) {
+    const documentId = commandArguments[1]
+    if (documentId === undefined) showUsage()
+    const service = new LightRAGSyncService()
+    const result = await service.syncDocument(documentId)
+    process.stdout.write([
+      'LightRAG document sync: OK',
+      `Document: ${result.documentId}`,
+      `Resource: ${result.resourceId}`,
+      `Course: ${result.course ?? 'UNCLASSIFIED'}`,
+      `Status: ${result.status}`,
+      ...(result.indexedAt === undefined ? [] : [`Indexed at: ${result.indexedAt}`]),
+      '',
+    ].join('\n'))
+  } else if (command === 'index-state' && commandArguments.length === 2) {
+    const documentId = commandArguments[1]
+    if (documentId === undefined) showUsage()
+    const state = new LightRAGSyncService().getIndexState(documentId)
+    if (state === undefined) {
+      process.stdout.write(`No LightRAG index state:\n${documentId}\n`)
+    } else {
+      process.stdout.write([
+        'LightRAG index state',
+        '',
+        `Document: ${state.documentId}`,
+        `Resource: ${state.resourceId}`,
+        `Course: ${state.course ?? 'UNCLASSIFIED'}`,
+        `Source hash: ${state.sourceHash}`,
+        `Normalized hash: ${state.normalizedHash}`,
+        `Normalization version: ${state.normalizationVersion}`,
+        `Source path: ${state.sourcePath}`,
+        `Indexed at: ${state.indexedAt}`,
+        '',
+      ].join('\n'))
+    }
   } else {
     showUsage()
   }
@@ -55,5 +91,5 @@ function errorMessage(error: unknown): string {
 }
 
 function showUsage(): never {
-  throw new Error('Usage: pnpm lightrag -- health | model-health | ingest-document <documentId>')
+  throw new Error('Usage: pnpm lightrag -- health | model-health | ingest-document <documentId> | sync-document <documentId> | index-state <documentId>')
 }

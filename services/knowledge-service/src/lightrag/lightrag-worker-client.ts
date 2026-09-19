@@ -43,6 +43,15 @@ export interface LightRAGIngestionResult {
   readonly embeddingModel: string
 }
 
+export interface LightRAGDeletionResult {
+  readonly documentId: string
+  readonly course: string | null
+  readonly workingDir: string
+  readonly deleted: boolean
+  readonly status?: string
+  readonly message?: string
+}
+
 interface WorkerSuccessResponse {
   readonly ok: true
   readonly command: 'health'
@@ -59,6 +68,12 @@ interface WorkerIngestionResponse {
   readonly ok: true
   readonly command: 'ingest-document'
   readonly ingestion: LightRAGIngestionResult
+}
+
+interface WorkerDeletionResponse {
+  readonly ok: true
+  readonly command: 'delete-document'
+  readonly deletion: LightRAGDeletionResult
 }
 
 interface WorkerFailureResponse {
@@ -112,7 +127,19 @@ export class LightRAGWorkerClient {
     return response.ingestion
   }
 
-  async #execute(command: 'health' | 'model-health' | 'ingest-document', extra: Record<string, unknown> = {}): Promise<unknown> {
+  async deleteDocument(documentId: string, course: string | null): Promise<LightRAGDeletionResult> {
+    const response = await this.#execute('delete-document', { documentId, course })
+    if (!isWorkerDeletion(response)) throw invalidResponse('delete-document', this.#workerPath, response)
+    if (!isDeletionResult(response.deletion)) {
+      throw new Error(`LightRAG command delete-document returned invalid deletion data from ${this.#workerPath}`)
+    }
+    return response.deletion
+  }
+
+  async #execute(
+    command: 'health' | 'model-health' | 'ingest-document' | 'delete-document',
+    extra: Record<string, unknown> = {},
+  ): Promise<unknown> {
     const request = JSON.stringify({ command, workingDir: this.#workingDir, ...extra })
     const result = await runWorker(this.#pythonPath, this.#workerPath, request, command)
     const response = parseResponse(result.stdout, this.#workerPath, command)
@@ -190,6 +217,10 @@ function isWorkerIngestion(value: unknown): value is WorkerIngestionResponse {
   return isRecord(value) && value.ok === true && value.command === 'ingest-document' && isRecord(value.ingestion)
 }
 
+function isWorkerDeletion(value: unknown): value is WorkerDeletionResponse {
+  return isRecord(value) && value.ok === true && value.command === 'delete-document' && isRecord(value.deletion)
+}
+
 function isWorkerFailure(value: unknown): value is WorkerFailureResponse {
   return isRecord(value)
     && value.ok === false
@@ -233,6 +264,16 @@ function isIngestionResult(value: unknown): value is LightRAGIngestionResult {
     && isAbsoluteString(value.workingDir)
     && typeof value.model === 'string'
     && typeof value.embeddingModel === 'string'
+}
+
+function isDeletionResult(value: unknown): value is LightRAGDeletionResult {
+  return isRecord(value)
+    && typeof value.documentId === 'string'
+    && (value.course === null || typeof value.course === 'string')
+    && isAbsoluteString(value.workingDir)
+    && typeof value.deleted === 'boolean'
+    && (value.status === undefined || typeof value.status === 'string')
+    && (value.message === undefined || typeof value.message === 'string')
 }
 
 function invalidResponse(command: string, workerPath: string, response: unknown): Error {

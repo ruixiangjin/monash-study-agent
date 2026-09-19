@@ -76,6 +76,16 @@ def validate_document(request: dict[str, Any]) -> dict[str, Any]:
     return document
 
 
+def validate_delete_document(request: dict[str, Any]) -> tuple[str, str | None]:
+    document_id = request.get("documentId")
+    if not isinstance(document_id, str) or not document_id:
+        raise ValueError("documentId must be a non-empty string")
+    course = request.get("course")
+    if course is not None and not isinstance(course, str):
+        raise ValueError("course must be a string or null")
+    return document_id, course
+
+
 async def handle(request: Any) -> dict[str, Any]:
     if not isinstance(request, dict):
         return failure("unknown", "RequestError", "request must be a JSON object")
@@ -102,6 +112,16 @@ async def handle(request: Any) -> dict[str, Any]:
             "ok": True,
             "command": "ingest-document",
             "ingestion": await ingest_document(request["workingDir"], document),
+        }
+    if command == "delete-document":
+        working_dir(request)
+        document_id, course = validate_delete_document(request)
+        from lightrag_runtime import delete_document
+
+        return {
+            "ok": True,
+            "command": "delete-document",
+            "deletion": await delete_document(request["workingDir"], course, document_id),
         }
     return failure(command_name, "CommandError", f"Unsupported command: {command_name}")
 

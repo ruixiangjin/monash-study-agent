@@ -1,4 +1,7 @@
 export * from './lightrag/lightrag-adapter.js'
+export * from './lightrag/lightrag-index-state.js'
+export * from './lightrag/lightrag-index-state-store.js'
+export * from './lightrag/lightrag-sync-service.js'
 export * from './lightrag/lightrag-worker-client.js'
 export * from './local/local-knowledge-service.js'
 export * from './normalization/code-normalizer.js'
