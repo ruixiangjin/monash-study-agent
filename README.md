@@ -16,6 +16,15 @@ The first implementation stage provides:
 - Study Controller dependency interfaces; and
 - a DSH/Cordis integration boundary that keeps product code outside DSH Core.
 
+The normalization foundation additionally provides:
+
+- a traceable `Resource → NormalizedDocument → original file` model;
+- Markdown, QMD, text, source-code, and CSV normalization;
+- one normalized document per Ed discussion thread;
+- Docling-backed PDF, DOCX, and PPTX conversion, including PDF OCR and tables;
+- incremental reuse based on source hash and normalizer version; and
+- inspectable Markdown and JSON output under `data/normalized/`.
+
 The current generated Manifest contains 344 resources and remains at `resources/resources.json` until the Resource Catalog replaces the JSON snapshot.
 
 ## Repository structure
@@ -28,13 +37,14 @@ monash-study-agent/
 │   ├── study-controller/      Study workflow orchestration interface
 │   └── dsh-integration/       Cordis service and future DSH tool registration
 ├── services/
-│   └── knowledge-service/     Local knowledge implementation and LightRAG seam
+│   └── knowledge-service/     Discovery, normalization, Docling, and LightRAG seam
 ├── connectors/
 │   ├── ed/                    Future Ed sync and live connector
 │   └── moodle/                Future Moodle sync and live connector
 ├── config/                    Local source registration
 ├── scripts/                   Product maintenance commands
 ├── resources/                 Generated Resource Manifest
+├── data/normalized/           Generated normalized content and incremental state
 ├── docs/                      Product architecture
 └── tests/                     Cross-module behavior tests
 ```
@@ -45,13 +55,19 @@ Runtime-generated databases, indexes, logs, and caches will live under `data/run
 
 ```sh
 pnpm install
+uv sync --project services/knowledge-service --python 3.12
 pnpm run scan
+pnpm normalize -- all
+pnpm normalize -- course FIT2109
+pnpm normalize -- resource <resourceId>
 pnpm run typecheck
 pnpm run build
 pnpm test
 ```
 
 `config/sources.json` identifies the current local course directories. Copy `config/sources.example.json` when configuring another machine. Scanning reads source files and downloader manifests without modifying the course libraries.
+
+The Python environment is local to `services/knowledge-service/.venv` and is not committed. Docling is pinned in `services/knowledge-service/uv.lock`; on macOS the project uses its native OCR backend, while other platforms use RapidOCR. Normalized Markdown is intended for inspection and later LightRAG ingestion, and the adjacent JSON files retain complete metadata and locators. Generated output and state remain untracked.
 
 ## Runtime integration
 

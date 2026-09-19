@@ -1,6 +1,9 @@
 node_modules/
 lib/
 coverage/
+.venv/
+__pycache__/
 *.tsbuildinfo
 .DS_Store
 data/runtime/
+data/normalized/
