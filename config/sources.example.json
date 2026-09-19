@@ -1,0 +1,14 @@
+{
+  "roots": [
+    {
+      "id": "monash-ed-downloads",
+      "source": "ed",
+      "path": "/absolute/path/to/Monash ED Downloads"
+    },
+    {
+      "id": "monash-moodle-downloads",
+      "source": "moodle",
+      "path": "/absolute/path/to/Monash Moodle Downloads"
+    }
+  ]
+}

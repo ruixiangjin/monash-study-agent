@@ -1,0 +1,8 @@
+packages:
+  - connectors/*
+  - packages/*
+  - services/*
+
+allowBuilds:
+  # tsx uses esbuild's platform binary to execute TypeScript tests and scan commands.
+  esbuild: true
