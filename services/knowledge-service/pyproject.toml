@@ -6,6 +6,7 @@ requires-python = ">=3.12,<3.14"
 dependencies = [
   "docling==2.129.0; sys_platform != 'darwin'",
   "docling[ocrmac]==2.129.0; sys_platform == 'darwin'",
+  "lightrag-hku==1.5.7",
 ]
 
 [tool.uv]
