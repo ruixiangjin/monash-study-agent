@@ -112,6 +112,22 @@ def validate_course_batch(request: dict[str, Any]) -> tuple[str, list[dict[str, 
     return course, validated
 
 
+def validate_query_course(request: dict[str, Any]) -> tuple[str, str, int, int]:
+    course = request.get("course")
+    if not isinstance(course, str) or not course:
+        raise ValueError("course must be a non-empty string")
+    query = request.get("query")
+    if not isinstance(query, str) or not query.strip():
+        raise ValueError("query must be a non-empty string")
+    top_k = request.get("topK", 20)
+    chunk_top_k = request.get("chunkTopK", 20)
+    if not isinstance(top_k, int) or isinstance(top_k, bool) or top_k < 1:
+        raise ValueError("topK must be a positive integer")
+    if not isinstance(chunk_top_k, int) or isinstance(chunk_top_k, bool) or chunk_top_k < 1:
+        raise ValueError("chunkTopK must be a positive integer")
+    return course, query, top_k, chunk_top_k
+
+
 async def handle(request: Any) -> dict[str, Any]:
     if not isinstance(request, dict):
         return failure("unknown", "RequestError", "request must be a JSON object")
@@ -159,6 +175,18 @@ async def handle(request: Any) -> dict[str, Any]:
             "command": "sync-course-batch",
             "batch": await sync_course_batch(
                 request["workingDir"], course, operations
+            ),
+        }
+    if command == "query-course":
+        working_dir(request)
+        course, query, top_k, chunk_top_k = validate_query_course(request)
+        from lightrag_runtime import query_course
+
+        return {
+            "ok": True,
+            "command": "query-course",
+            "query": await query_course(
+                request["workingDir"], course, query, top_k, chunk_top_k
             ),
         }
     return failure(command_name, "CommandError", f"Unsupported command: {command_name}")

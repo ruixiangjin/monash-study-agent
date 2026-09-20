@@ -12,6 +12,7 @@ from typing import Any
 import numpy as np
 import torch
 from lightrag import LightRAG
+from lightrag import QueryParam
 from lightrag.llm.openai import openai_complete_if_cache
 from lightrag.utils import wrap_embedding_func_with_attrs
 from sentence_transformers import SentenceTransformer
@@ -332,3 +333,81 @@ def _batch_failure(
         "oldDeleted": old_deleted,
         "error": {"type": type(error).__name__, "message": str(error)},
     }
+
+
+async def query_course(
+    working_dir_root: str,
+    course: str,
+    query: str,
+    top_k: int,
+    chunk_top_k: int,
+) -> dict[str, Any]:
+    rag, course_working_dir = await create_rag(working_dir_root, course)
+    try:
+        raw_result = await rag.aquery_data(
+            query,
+            param=QueryParam(
+                mode="mix",
+                top_k=top_k,
+                chunk_top_k=chunk_top_k,
+                enable_rerank=False,
+            ),
+        )
+        data = raw_result.get("data", {}) if isinstance(raw_result, dict) else {}
+        raw_chunks = data.get("chunks", []) if isinstance(data, dict) else []
+        if not isinstance(raw_chunks, list):
+            raw_chunks = []
+
+        chunk_ids = [
+            chunk.get("chunk_id")
+            for chunk in raw_chunks
+            if isinstance(chunk, dict) and isinstance(chunk.get("chunk_id"), str)
+        ]
+        stored_chunks = await rag.text_chunks.get_by_ids(chunk_ids)
+        stored_by_id = {
+            chunk_id: stored
+            for chunk_id, stored in zip(chunk_ids, stored_chunks)
+            if isinstance(stored, dict)
+        }
+
+        chunks: list[dict[str, Any]] = []
+        unresolved = 0
+        for raw_chunk in raw_chunks:
+            if not isinstance(raw_chunk, dict):
+                continue
+            chunk_id = raw_chunk.get("chunk_id")
+            content = raw_chunk.get("content")
+            stored = stored_by_id.get(chunk_id) if isinstance(chunk_id, str) else None
+            document_id = stored.get("full_doc_id") if stored is not None else None
+            if not isinstance(document_id, str) or not document_id:
+                unresolved += 1
+                continue
+            if not isinstance(content, str) or not content:
+                continue
+
+            chunk: dict[str, Any] = {
+                "documentId": document_id,
+                "content": content,
+            }
+            if isinstance(chunk_id, str) and chunk_id:
+                chunk["chunkId"] = chunk_id
+            file_path = raw_chunk.get("file_path")
+            reference_id = raw_chunk.get("reference_id")
+            if isinstance(file_path, str) and file_path:
+                chunk["filePath"] = file_path
+            if isinstance(reference_id, str) and reference_id:
+                chunk["referenceId"] = reference_id
+            score = raw_chunk.get("score")
+            if isinstance(score, (int, float)) and not isinstance(score, bool):
+                chunk["score"] = float(score)
+            chunks.append(chunk)
+
+        return {
+            "course": course,
+            "mode": "mix",
+            "chunks": chunks,
+            "unresolved": unresolved,
+            "workingDir": str(course_working_dir),
+        }
+    finally:
+        await close_rag(rag)

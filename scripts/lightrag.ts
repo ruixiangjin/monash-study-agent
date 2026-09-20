@@ -1,11 +1,12 @@
 import { LightRAGWorkerClient } from '../services/knowledge-service/src/lightrag/lightrag-worker-client.js'
+import { LightRAGKnowledgeService } from '../services/knowledge-service/src/lightrag/lightrag-knowledge-service.js'
 import { LightRAGSyncService } from '../services/knowledge-service/src/lightrag/lightrag-sync-service.js'
 import { NormalizedDocumentLoader } from '../services/knowledge-service/src/normalization/normalized-document-loader.js'
 
 const args = process.argv.slice(2)
 const commandArguments = args[0] === '--' ? args.slice(1) : args
 const command = commandArguments[0]
-if (!['health', 'model-health', 'ingest-document', 'sync-document', 'index-state', 'sync-course'].includes(command ?? '')) showUsage()
+if (!['health', 'model-health', 'ingest-document', 'sync-document', 'index-state', 'sync-course', 'search'].includes(command ?? '')) showUsage()
 
 try {
   const client = new LightRAGWorkerClient()
@@ -118,6 +119,38 @@ try {
       lines.push('')
       process.stdout.write(lines.join('\n'))
     }
+  } else if (command === 'search') {
+    const searchArguments = parseSearchArguments(commandArguments.slice(1))
+    const knowledge = new LightRAGKnowledgeService({ client })
+    const evidence = await knowledge.search(searchArguments)
+    const lines = [
+      'LightRAG search: OK',
+      '',
+      `Query: ${searchArguments.query}`,
+      `Course: ${searchArguments.course}`,
+      ...(searchArguments.week === undefined ? [] : [`Week: ${searchArguments.week}`]),
+      `Evidence: ${evidence.length}`,
+    ]
+    for (const [index, item] of evidence.entries()) {
+      const metadataDocumentId = item.metadata.documentId
+      const chunkId = item.metadata.lightragChunkId
+      lines.push(
+        '',
+        `[${index + 1}]`,
+        '',
+        `Evidence ID: ${item.evidenceId}`,
+        `Document: ${metadataDocumentId}`,
+        `Resource: ${item.resourceId ?? 'unknown'}`,
+        `Title: ${item.title}`,
+        `Course: ${item.course ?? 'UNCLASSIFIED'}`,
+        `Week: ${item.metadata.week ?? 'unknown'}`,
+        `Source: ${item.source}`,
+        `Chunk: ${chunkId ?? 'unknown'}`,
+        `Content: ${preview(item.content)}`,
+      )
+    }
+    lines.push('')
+    process.stdout.write(lines.join('\n'))
   } else {
     showUsage()
   }
@@ -131,5 +164,43 @@ function errorMessage(error: unknown): string {
 }
 
 function showUsage(): never {
-  throw new Error('Usage: pnpm lightrag -- health | model-health | ingest-document <documentId> | sync-document <documentId> | index-state <documentId> | sync-course <course> [--dry-run]')
+  throw new Error('Usage: pnpm lightrag -- health | model-health | ingest-document <documentId> | sync-document <documentId> | index-state <documentId> | sync-course <course> [--dry-run] | search --course <course> [--week <week>] [--limit <limit>] <query>')
+}
+
+function parseSearchArguments(args: readonly string[]): {
+  readonly query: string
+  readonly course: string
+  readonly week?: number
+  readonly limit?: number
+} {
+  let course: string | undefined
+  let week: number | undefined
+  let limit: number | undefined
+  const queryParts: string[] = []
+  for (let index = 0; index < args.length; index += 1) {
+    const argument = args[index]
+    if (argument === '--course' || argument === '--week' || argument === '--limit') {
+      const value = args[index + 1]
+      if (value === undefined) showUsage()
+      if (argument === '--course') course = value
+      else if (argument === '--week') week = parseInteger(value, '--week')
+      else limit = parseInteger(value, '--limit')
+      index += 1
+    } else if (argument !== undefined) {
+      queryParts.push(argument)
+    }
+  }
+  const query = queryParts.join(' ').trim()
+  if (!course || !query) showUsage()
+  return { query, course, ...(week === undefined ? {} : { week }), ...(limit === undefined ? {} : { limit }) }
+}
+
+function parseInteger(value: string, name: string): number {
+  if (!/^\d+$/.test(value)) throw new Error(`${name} must be an integer`)
+  return Number(value)
+}
+
+function preview(content: string): string {
+  const compact = content.replace(/\s+/g, ' ').trim()
+  return compact.length <= 500 ? compact : `${compact.slice(0, 497)}...`
 }

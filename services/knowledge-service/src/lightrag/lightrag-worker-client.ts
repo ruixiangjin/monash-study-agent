@@ -75,6 +75,22 @@ export interface LightRAGCourseBatchResult {
   readonly operations: readonly LightRAGCourseBatchOperationResult[]
 }
 
+export interface LightRAGRetrievedChunk {
+  readonly chunkId?: string
+  readonly documentId?: string
+  readonly filePath?: string
+  readonly referenceId?: string
+  readonly content: string
+  readonly score?: number
+}
+
+export interface LightRAGQueryResult {
+  readonly course: string
+  readonly mode: 'mix'
+  readonly chunks: readonly LightRAGRetrievedChunk[]
+  readonly unresolved: number
+}
+
 interface WorkerSuccessResponse {
   readonly ok: true
   readonly command: 'health'
@@ -103,6 +119,12 @@ interface WorkerCourseBatchResponse {
   readonly ok: true
   readonly command: 'sync-course-batch'
   readonly batch: LightRAGCourseBatchResult
+}
+
+interface WorkerQueryResponse {
+  readonly ok: true
+  readonly command: 'query-course'
+  readonly query: LightRAGQueryResult
 }
 
 interface WorkerFailureResponse {
@@ -177,8 +199,26 @@ export class LightRAGWorkerClient {
     return response.batch
   }
 
+  async queryCourse(
+    course: string,
+    query: string,
+    options: { readonly topK?: number; readonly chunkTopK?: number } = {},
+  ): Promise<LightRAGQueryResult> {
+    const response = await this.#execute('query-course', {
+      course,
+      query,
+      topK: options.topK ?? 20,
+      chunkTopK: options.chunkTopK ?? 20,
+    })
+    if (!isWorkerQuery(response)) throw invalidResponse('query-course', this.#workerPath, response)
+    if (!isQueryResult(response.query)) {
+      throw new Error(`LightRAG command query-course returned invalid query data from ${this.#workerPath}`)
+    }
+    return response.query
+  }
+
   async #execute(
-    command: 'health' | 'model-health' | 'ingest-document' | 'delete-document' | 'sync-course-batch',
+    command: 'health' | 'model-health' | 'ingest-document' | 'delete-document' | 'sync-course-batch' | 'query-course',
     extra: Record<string, unknown> = {},
   ): Promise<unknown> {
     const request = JSON.stringify({ command, workingDir: this.#workingDir, ...extra })
@@ -266,6 +306,10 @@ function isWorkerCourseBatch(value: unknown): value is WorkerCourseBatchResponse
   return isRecord(value) && value.ok === true && value.command === 'sync-course-batch' && isRecord(value.batch)
 }
 
+function isWorkerQuery(value: unknown): value is WorkerQueryResponse {
+  return isRecord(value) && value.ok === true && value.command === 'query-course' && isRecord(value.query)
+}
+
 function isWorkerFailure(value: unknown): value is WorkerFailureResponse {
   return isRecord(value)
     && value.ok === false
@@ -341,6 +385,25 @@ function isCourseBatchOperationResult(value: unknown): value is LightRAGCourseBa
       && typeof value.error.type === 'string'
       && typeof value.error.message === 'string'
     ))
+}
+
+function isQueryResult(value: unknown): value is LightRAGQueryResult {
+  return isRecord(value)
+    && typeof value.course === 'string'
+    && value.mode === 'mix'
+    && typeof value.unresolved === 'number'
+    && Array.isArray(value.chunks)
+    && value.chunks.every(isRetrievedChunk)
+}
+
+function isRetrievedChunk(value: unknown): value is LightRAGRetrievedChunk {
+  return isRecord(value)
+    && (value.chunkId === undefined || typeof value.chunkId === 'string')
+    && (value.documentId === undefined || typeof value.documentId === 'string')
+    && (value.filePath === undefined || typeof value.filePath === 'string')
+    && (value.referenceId === undefined || typeof value.referenceId === 'string')
+    && typeof value.content === 'string'
+    && (value.score === undefined || typeof value.score === 'number')
 }
 
 function invalidResponse(command: string, workerPath: string, response: unknown): Error {
