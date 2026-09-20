@@ -52,6 +52,29 @@ export interface LightRAGDeletionResult {
   readonly message?: string
 }
 
+export type LightRAGCourseBatchOperation =
+  | { readonly kind: 'index'; readonly document: NormalizedDocument }
+  | { readonly kind: 'replace'; readonly document: NormalizedDocument }
+  | { readonly kind: 'remove'; readonly documentId: string }
+
+export interface LightRAGCourseBatchOperationResult {
+  readonly documentId: string
+  readonly kind: LightRAGCourseBatchOperation['kind']
+  readonly ok: boolean
+  readonly stage?: 'delete' | 'ingest'
+  readonly oldDeleted?: boolean
+  readonly error?: {
+    readonly type: string
+    readonly message: string
+  }
+}
+
+export interface LightRAGCourseBatchResult {
+  readonly course: string
+  readonly workingDir: string
+  readonly operations: readonly LightRAGCourseBatchOperationResult[]
+}
+
 interface WorkerSuccessResponse {
   readonly ok: true
   readonly command: 'health'
@@ -74,6 +97,12 @@ interface WorkerDeletionResponse {
   readonly ok: true
   readonly command: 'delete-document'
   readonly deletion: LightRAGDeletionResult
+}
+
+interface WorkerCourseBatchResponse {
+  readonly ok: true
+  readonly command: 'sync-course-batch'
+  readonly batch: LightRAGCourseBatchResult
 }
 
 interface WorkerFailureResponse {
@@ -136,8 +165,20 @@ export class LightRAGWorkerClient {
     return response.deletion
   }
 
+  async syncCourseBatch(
+    course: string,
+    operations: readonly LightRAGCourseBatchOperation[],
+  ): Promise<LightRAGCourseBatchResult> {
+    const response = await this.#execute('sync-course-batch', { course, operations })
+    if (!isWorkerCourseBatch(response)) throw invalidResponse('sync-course-batch', this.#workerPath, response)
+    if (!isCourseBatchResult(response.batch)) {
+      throw new Error(`LightRAG command sync-course-batch returned invalid batch data from ${this.#workerPath}`)
+    }
+    return response.batch
+  }
+
   async #execute(
-    command: 'health' | 'model-health' | 'ingest-document' | 'delete-document',
+    command: 'health' | 'model-health' | 'ingest-document' | 'delete-document' | 'sync-course-batch',
     extra: Record<string, unknown> = {},
   ): Promise<unknown> {
     const request = JSON.stringify({ command, workingDir: this.#workingDir, ...extra })
@@ -221,6 +262,10 @@ function isWorkerDeletion(value: unknown): value is WorkerDeletionResponse {
   return isRecord(value) && value.ok === true && value.command === 'delete-document' && isRecord(value.deletion)
 }
 
+function isWorkerCourseBatch(value: unknown): value is WorkerCourseBatchResponse {
+  return isRecord(value) && value.ok === true && value.command === 'sync-course-batch' && isRecord(value.batch)
+}
+
 function isWorkerFailure(value: unknown): value is WorkerFailureResponse {
   return isRecord(value)
     && value.ok === false
@@ -274,6 +319,28 @@ function isDeletionResult(value: unknown): value is LightRAGDeletionResult {
     && typeof value.deleted === 'boolean'
     && (value.status === undefined || typeof value.status === 'string')
     && (value.message === undefined || typeof value.message === 'string')
+}
+
+function isCourseBatchResult(value: unknown): value is LightRAGCourseBatchResult {
+  return isRecord(value)
+    && typeof value.course === 'string'
+    && isAbsoluteString(value.workingDir)
+    && Array.isArray(value.operations)
+    && value.operations.every(isCourseBatchOperationResult)
+}
+
+function isCourseBatchOperationResult(value: unknown): value is LightRAGCourseBatchOperationResult {
+  return isRecord(value)
+    && typeof value.documentId === 'string'
+    && (value.kind === 'index' || value.kind === 'replace' || value.kind === 'remove')
+    && typeof value.ok === 'boolean'
+    && (value.stage === undefined || value.stage === 'delete' || value.stage === 'ingest')
+    && (value.oldDeleted === undefined || typeof value.oldDeleted === 'boolean')
+    && (value.error === undefined || (
+      isRecord(value.error)
+      && typeof value.error.type === 'string'
+      && typeof value.error.message === 'string'
+    ))
 }
 
 function invalidResponse(command: string, workerPath: string, response: unknown): Error {

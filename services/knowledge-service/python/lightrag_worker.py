@@ -86,6 +86,32 @@ def validate_delete_document(request: dict[str, Any]) -> tuple[str, str | None]:
     return document_id, course
 
 
+def validate_course_batch(request: dict[str, Any]) -> tuple[str, list[dict[str, Any]]]:
+    course = request.get("course")
+    if not isinstance(course, str) or not course:
+        raise ValueError("course must be a non-empty string")
+    operations = request.get("operations")
+    if not isinstance(operations, list):
+        raise ValueError("operations must be a JSON array")
+    validated: list[dict[str, Any]] = []
+    for index, operation in enumerate(operations):
+        if not isinstance(operation, dict):
+            raise ValueError(f"operations[{index}] must be a JSON object")
+        kind = operation.get("kind")
+        if kind not in {"index", "replace", "remove"}:
+            raise ValueError(f"operations[{index}].kind is invalid")
+        if kind == "remove":
+            document_id = operation.get("documentId")
+            if not isinstance(document_id, str) or not document_id:
+                raise ValueError(
+                    f"operations[{index}].documentId must be a non-empty string"
+                )
+        else:
+            validate_document({"document": operation.get("document")})
+        validated.append(operation)
+    return course, validated
+
+
 async def handle(request: Any) -> dict[str, Any]:
     if not isinstance(request, dict):
         return failure("unknown", "RequestError", "request must be a JSON object")
@@ -122,6 +148,18 @@ async def handle(request: Any) -> dict[str, Any]:
             "ok": True,
             "command": "delete-document",
             "deletion": await delete_document(request["workingDir"], course, document_id),
+        }
+    if command == "sync-course-batch":
+        working_dir(request)
+        course, operations = validate_course_batch(request)
+        from lightrag_runtime import sync_course_batch
+
+        return {
+            "ok": True,
+            "command": "sync-course-batch",
+            "batch": await sync_course_batch(
+                request["workingDir"], course, operations
+            ),
         }
     return failure(command_name, "CommandError", f"Unsupported command: {command_name}")
 

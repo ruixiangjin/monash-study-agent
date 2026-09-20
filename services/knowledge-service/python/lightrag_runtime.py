@@ -245,3 +245,90 @@ async def delete_document(
         "status": deletion.status,
         "message": deletion.message,
     }
+
+
+async def sync_course_batch(
+    working_dir_root: str,
+    course: str,
+    operations: list[dict[str, Any]],
+) -> dict[str, Any]:
+    rag, course_working_dir = await create_rag(working_dir_root, course)
+    results: list[dict[str, Any]] = []
+    try:
+        for operation in operations:
+            kind = operation["kind"]
+            document = operation.get("document")
+            document_id = (
+                operation["documentId"]
+                if kind == "remove"
+                else document["documentId"]
+            )
+            if kind == "index":
+                try:
+                    await _insert_with_rag(rag, document)
+                    results.append({"documentId": document_id, "kind": kind, "ok": True})
+                except Exception as error:
+                    results.append(_batch_failure(document_id, kind, "ingest", error))
+                continue
+
+            try:
+                deletion = await rag.adelete_by_doc_id(document_id)
+                if deletion.status != "success":
+                    raise RuntimeError(
+                        f"LightRAG deletion returned {deletion.status}: {deletion.message}"
+                    )
+            except Exception as error:
+                results.append(_batch_failure(document_id, kind, "delete", error))
+                continue
+
+            if kind == "remove":
+                results.append({"documentId": document_id, "kind": kind, "ok": True})
+                continue
+
+            try:
+                await _insert_with_rag(rag, document)
+                results.append({"documentId": document_id, "kind": kind, "ok": True})
+            except Exception as error:
+                results.append(
+                    _batch_failure(
+                        document_id,
+                        kind,
+                        "ingest",
+                        error,
+                        old_deleted=True,
+                    )
+                )
+    finally:
+        await close_rag(rag)
+
+    return {
+        "course": course,
+        "workingDir": str(course_working_dir),
+        "operations": results,
+    }
+
+
+async def _insert_with_rag(rag: LightRAG, document: dict[str, Any]) -> None:
+    await rag.ainsert(
+        document["text"],
+        ids=[document["documentId"]],
+        file_paths=[document["sourcePath"]],
+    )
+
+
+def _batch_failure(
+    document_id: str,
+    kind: str,
+    stage: str,
+    error: BaseException,
+    *,
+    old_deleted: bool = False,
+) -> dict[str, Any]:
+    return {
+        "documentId": document_id,
+        "kind": kind,
+        "ok": False,
+        "stage": stage,
+        "oldDeleted": old_deleted,
+        "error": {"type": type(error).__name__, "message": str(error)},
+    }

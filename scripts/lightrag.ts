@@ -5,7 +5,7 @@ import { NormalizedDocumentLoader } from '../services/knowledge-service/src/norm
 const args = process.argv.slice(2)
 const commandArguments = args[0] === '--' ? args.slice(1) : args
 const command = commandArguments[0]
-if (!['health', 'model-health', 'ingest-document', 'sync-document', 'index-state'].includes(command ?? '')) showUsage()
+if (!['health', 'model-health', 'ingest-document', 'sync-document', 'index-state', 'sync-course'].includes(command ?? '')) showUsage()
 
 try {
   const client = new LightRAGWorkerClient()
@@ -78,6 +78,46 @@ try {
         '',
       ].join('\n'))
     }
+  } else if (command === 'sync-course' && (commandArguments.length === 2 || commandArguments.length === 3)) {
+    const course = commandArguments[1]
+    if (course === undefined) showUsage()
+    const dryRun = commandArguments[2] === '--dry-run'
+    if (commandArguments.length === 3 && !dryRun) showUsage()
+    const service = new LightRAGSyncService()
+    if (dryRun) {
+      const plan = await service.planCourseSync(course)
+      process.stdout.write([
+        'LightRAG course sync plan',
+        '',
+        `Course: ${plan.course}`,
+        `Documents: ${plan.totalDocuments}`,
+        '',
+        `New: ${plan.indexed.length}`,
+        `Updated: ${plan.updated.length}`,
+        `Unchanged: ${plan.unchanged.length}`,
+        `Removed: ${plan.removed.length}`,
+        '',
+      ].join('\n'))
+    } else {
+      const result = await service.syncCourse(course)
+      const lines = [
+        'LightRAG course sync: OK',
+        '',
+        `Course: ${result.course}`,
+        `Documents: ${result.totalDocuments}`,
+        '',
+        `Indexed: ${result.indexed}`,
+        `Updated: ${result.updated}`,
+        `Unchanged: ${result.unchanged}`,
+        `Removed: ${result.removed}`,
+        `Failed: ${result.failed}`,
+      ]
+      for (const failure of result.failures) {
+        lines.push('', `Document: ${failure.documentId}`, `Operation: ${failure.operation}`, `Error: ${failure.message}`)
+      }
+      lines.push('')
+      process.stdout.write(lines.join('\n'))
+    }
   } else {
     showUsage()
   }
@@ -91,5 +131,5 @@ function errorMessage(error: unknown): string {
 }
 
 function showUsage(): never {
-  throw new Error('Usage: pnpm lightrag -- health | model-health | ingest-document <documentId> | sync-document <documentId> | index-state <documentId>')
+  throw new Error('Usage: pnpm lightrag -- health | model-health | ingest-document <documentId> | sync-document <documentId> | index-state <documentId> | sync-course <course> [--dry-run]')
 }
