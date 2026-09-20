@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto'
 import type { Evidence, NormalizedDocument } from '@monash-study/shared-types'
 import type { KnowledgeQuery, KnowledgeService } from '@monash-study/study-core'
 import { NormalizedDocumentLoader } from '../normalization/normalized-document-loader.js'
+import { loadRuntimeConfig, type LoadedRuntimeConfig } from '../runtime/runtime-config.js'
 import { LightRAGIndexStateStore } from './lightrag-index-state-store.js'
 import {
   LightRAGWorkerClient,
@@ -22,6 +23,7 @@ export interface LightRAGKnowledgeServiceOptions {
   readonly client?: LightRAGQueryClient
   readonly loader?: NormalizedDocumentLoader
   readonly stateStore?: LightRAGIndexStateStore
+  readonly configPath?: string
 }
 
 /** Provides structured LightRAG retrieval enriched with authoritative course metadata. */
@@ -29,11 +31,13 @@ export class LightRAGKnowledgeService implements KnowledgeService {
   readonly #client: LightRAGQueryClient
   readonly #loader: NormalizedDocumentLoader
   readonly #stateStore: LightRAGIndexStateStore
+  readonly #runtimeConfig: LoadedRuntimeConfig
 
   constructor(options: LightRAGKnowledgeServiceOptions = {}) {
     this.#client = options.client ?? new LightRAGWorkerClient()
     this.#loader = options.loader ?? new NormalizedDocumentLoader()
     this.#stateStore = options.stateStore ?? new LightRAGIndexStateStore()
+    this.#runtimeConfig = loadRuntimeConfig(options.configPath)
   }
 
   async search(query: KnowledgeQuery): Promise<readonly Evidence[]> {
@@ -53,8 +57,8 @@ export class LightRAGKnowledgeService implements KnowledgeService {
     const documents = await this.#loader.list({ course })
     const documentById = new Map(documents.map((document) => [document.documentId, document]))
     const result = await this.#client.queryCourse(course, text, {
-      topK: 20,
-      chunkTopK: Math.min(Math.max(limit * 4, 20), 80),
+      topK: this.#runtimeConfig.lightrag.query.topK,
+      chunkTopK: Math.min(Math.max(limit * 4, this.#runtimeConfig.lightrag.query.chunkTopK), 80),
     })
 
     const mapped: MappedEvidence[] = []

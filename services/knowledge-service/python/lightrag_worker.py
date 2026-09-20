@@ -12,32 +12,27 @@ from importlib.metadata import version
 from pathlib import Path
 from typing import Any
 
-
-def failure(command: str, error_type: str, message: str) -> dict[str, Any]:
-    return {
-        "ok": False,
-        "command": command,
-        "error": {"type": error_type, "message": message},
-    }
+from lightrag_protocol import ProtocolError, decode_request, failure, success
+from runtime_config import load_runtime_config
 
 
 def health(request: dict[str, Any]) -> dict[str, Any]:
     working_dir_value = request.get("workingDir")
     if not isinstance(working_dir_value, str) or not working_dir_value:
-        return failure("health", "RequestError", "workingDir must be a non-empty string")
+        raise ValueError("workingDir must be a non-empty string")
 
     working_dir = Path(working_dir_value).expanduser().resolve()
     try:
         working_dir.mkdir(parents=True, exist_ok=True)
         if not working_dir.is_dir():
-            return failure("health", "WorkingDirectoryError", f"Not a directory: {working_dir}")
+            raise NotADirectoryError(f"Not a directory: {working_dir}")
 
         import lightrag  # noqa: F401
         from lightrag import LightRAG, QueryParam  # noqa: F401
 
         package_version = version("lightrag-hku")
-    except Exception as error:  # pragma: no cover - exercised by runtime failures
-        return failure("health", type(error).__name__, str(error))
+    except Exception:
+        raise
 
     return {
         "ok": True,
@@ -130,7 +125,7 @@ def validate_query_course(request: dict[str, Any]) -> tuple[str, str, int, int]:
 
 async def handle(request: Any) -> dict[str, Any]:
     if not isinstance(request, dict):
-        return failure("unknown", "RequestError", "request must be a JSON object")
+        raise ValueError("request must be a JSON object")
     command = request.get("command")
     command_name = command if isinstance(command, str) else "unknown"
     if command == "health":
@@ -189,24 +184,39 @@ async def handle(request: Any) -> dict[str, Any]:
                 request["workingDir"], course, query, top_k, chunk_top_k
             ),
         }
-    return failure(command_name, "CommandError", f"Unsupported command: {command_name}")
-
-
-def command_name(request: Any) -> str:
-    if isinstance(request, dict) and isinstance(request.get("command"), str):
-        return request["command"]
-    return "unknown"
+    raise ValueError(f"Unsupported command: {command}")
 
 
 async def main() -> None:
-    request: Any = None
+    request_id = "unknown"
     captured_stdout = io.StringIO()
     try:
-        request = json.load(sys.stdin)
+        raw_request = json.load(sys.stdin)
+        request_id, command, payload = decode_request(raw_request)
+        runtime_config_path = payload.get("runtimeConfigPath")
+        if not isinstance(runtime_config_path, str) or not runtime_config_path:
+            raise ProtocolError("RUNTIME_CONFIG_INVALID", "payload.runtimeConfigPath must be a non-empty string")
+        config = load_runtime_config(runtime_config_path)
+        from lightrag_runtime import configure_runtime
+
+        configure_runtime(config)
+        request = dict(payload)
+        request["command"] = command
+        if not isinstance(request.get("workingDir"), str) or not request["workingDir"]:
+            request["workingDir"] = config["lightrag"]["workingRoot"]
         with contextlib.redirect_stdout(captured_stdout):
-            response = await handle(request)
+            raw_response = await handle(request)
+        if not isinstance(raw_response, dict) or raw_response.get("ok") is not True:
+            raise RuntimeError("LightRAG command returned an invalid internal result")
+        result = {
+            key: value
+            for key, value in raw_response.items()
+            if key not in {"ok", "command"}
+        }
+        response = success(request_id, result)
     except Exception as error:  # pragma: no cover - malformed process input
-        response = failure(command_name(request), type(error).__name__, str(error))
+        code = error.code if isinstance(error, ProtocolError) else type(error).__name__
+        response = failure(request_id, code, str(error))
     diagnostics = captured_stdout.getvalue()
     if diagnostics:
         sys.stderr.write(diagnostics)

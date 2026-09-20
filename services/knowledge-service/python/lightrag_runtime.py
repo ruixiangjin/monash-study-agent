@@ -17,17 +17,28 @@ from lightrag.llm.openai import openai_complete_if_cache
 from lightrag.utils import wrap_embedding_func_with_attrs
 from sentence_transformers import SentenceTransformer
 
-DEEPSEEK_MODEL = "deepseek-flash"
-DEEPSEEK_BASE_URL = "https://api.deepseek.com"
-
-EMBEDDING_MODEL = "BAAI/bge-m3"
-EMBEDDING_DIMENSION = 1024
-EMBEDDING_MAX_TOKENS = 8192
-EMBEDDING_BATCH_SIZE = 4
-
 _embedding_model: SentenceTransformer | None = None
 _embedding_device: str | None = None
 _embedding_lock = threading.RLock()
+_runtime_config: dict[str, Any] | None = None
+
+
+def configure_runtime(config: dict[str, Any]) -> None:
+    global _runtime_config
+    _runtime_config = config
+
+
+def runtime_config() -> dict[str, Any]:
+    if _runtime_config is None:
+        raise RuntimeError("LightRAG runtime configuration has not been loaded")
+    return _runtime_config
+
+
+def lightrag_config() -> dict[str, Any]:
+    value = runtime_config().get("lightrag")
+    if not isinstance(value, dict):
+        raise RuntimeError("LightRAG runtime configuration is invalid")
+    return value
 
 
 async def deepseek_complete(
@@ -53,21 +64,22 @@ async def deepseek_complete(
     request_kwargs["extra_body"] = extra_body
 
     return await openai_complete_if_cache(
-        model=DEEPSEEK_MODEL,
+        model=lightrag_config()["llm"]["model"],
         prompt=prompt,
         system_prompt=system_prompt,
         history_messages=history_messages,
         enable_cot=False,
         keyword_extraction=keyword_extraction,
-        base_url=DEEPSEEK_BASE_URL,
+        base_url=lightrag_config()["llm"]["baseUrl"],
         api_key=api_key,
         **request_kwargs,
     )
 
 
 def _load_embedding_model(device: str) -> SentenceTransformer:
-    model = SentenceTransformer(EMBEDDING_MODEL, device=device)
-    model.max_seq_length = EMBEDDING_MAX_TOKENS
+    embedding = lightrag_config()["embedding"]
+    model = SentenceTransformer(embedding["model"], device=device)
+    model.max_seq_length = embedding["maxTokens"]
     return model
 
 
@@ -104,7 +116,7 @@ def _encode(texts: list[str]) -> np.ndarray:
         try:
             encoded = model.encode(
                 texts,
-                batch_size=EMBEDDING_BATCH_SIZE,
+                batch_size=lightrag_config()["embedding"]["batchSize"],
                 convert_to_numpy=True,
                 normalize_embeddings=True,
             )
@@ -116,12 +128,13 @@ def _encode(texts: list[str]) -> np.ndarray:
             _embedding_device = "cpu"
             encoded = _embedding_model.encode(
                 texts,
-                batch_size=EMBEDDING_BATCH_SIZE,
+                batch_size=lightrag_config()["embedding"]["batchSize"],
                 convert_to_numpy=True,
                 normalize_embeddings=True,
             )
     embeddings = np.asarray(encoded)
-    if embeddings.ndim != 2 or embeddings.shape != (len(texts), EMBEDDING_DIMENSION):
+    dimension = lightrag_config()["embedding"]["dimension"]
+    if embeddings.ndim != 2 or embeddings.shape != (len(texts), dimension):
         raise RuntimeError(
             f"BGE-M3 returned unexpected embedding shape: {list(embeddings.shape)} "
             f"for {len(texts)} input texts"
@@ -131,29 +144,34 @@ def _encode(texts: list[str]) -> np.ndarray:
     return embeddings
 
 
-@wrap_embedding_func_with_attrs(
-    embedding_dim=EMBEDDING_DIMENSION,
-    max_token_size=EMBEDDING_MAX_TOKENS,
-    model_name=EMBEDDING_MODEL,
-)
-async def bge_m3_embedding(texts: list[str]) -> np.ndarray:
+async def _bge_m3_embedding(texts: list[str]) -> np.ndarray:
     """Embed text off the async event loop using the local BGE-M3 model."""
     return await asyncio.to_thread(_encode, texts)
 
 
+def configured_embedding():
+    embedding = lightrag_config()["embedding"]
+    return wrap_embedding_func_with_attrs(
+        embedding_dim=embedding["dimension"],
+        max_token_size=embedding["maxTokens"],
+        model_name=embedding["model"],
+    )(_bge_m3_embedding)
+
+
 async def check_embedding() -> dict[str, Any]:
-    embeddings = await bge_m3_embedding([
+    embeddings = await configured_embedding()([
         "Deterministic finite automaton",
         "Nondeterministic finite automaton",
     ])
-    if embeddings.ndim != 2 or embeddings.shape != (2, EMBEDDING_DIMENSION):
+    dimension = lightrag_config()["embedding"]["dimension"]
+    if embeddings.ndim != 2 or embeddings.shape != (2, dimension):
         raise RuntimeError(f"BGE-M3 returned unexpected embedding shape: {list(embeddings.shape)}")
     if not np.issubdtype(embeddings.dtype, np.number) or not np.isfinite(embeddings).all():
         raise RuntimeError("BGE-M3 returned invalid embedding values")
     return {
-        "model": EMBEDDING_MODEL,
-        "dimension": EMBEDDING_DIMENSION,
-        "maxTokens": EMBEDDING_MAX_TOKENS,
+        "model": lightrag_config()["embedding"]["model"],
+        "dimension": dimension,
+        "maxTokens": lightrag_config()["embedding"]["maxTokens"],
         "device": _embedding_device or "unknown",
         "shape": [int(embeddings.shape[0]), int(embeddings.shape[1])],
     }
@@ -165,8 +183,8 @@ async def check_llm() -> dict[str, Any]:
         raise RuntimeError("DeepSeek returned an empty response")
     return {
         "provider": "deepseek",
-        "model": DEEPSEEK_MODEL,
-        "baseUrl": DEEPSEEK_BASE_URL,
+        "model": lightrag_config()["llm"]["model"],
+        "baseUrl": lightrag_config()["llm"]["baseUrl"],
         "thinking": False,
         "responseReceived": True,
     }
@@ -186,12 +204,13 @@ async def create_rag(
 ) -> tuple[LightRAG, Path]:
     course_working_dir = _course_directory(working_dir_root, course)
     course_working_dir.mkdir(parents=True, exist_ok=True)
+    rag_config = lightrag_config()
     rag = LightRAG(
         working_dir=str(course_working_dir),
         llm_model_func=deepseek_complete,
-        llm_model_name=DEEPSEEK_MODEL,
-        embedding_func=bge_m3_embedding,
-        embedding_func_max_async=1,
+        llm_model_name=rag_config["llm"]["model"],
+        embedding_func=configured_embedding(),
+        embedding_func_max_async=rag_config["embedding"]["maxAsync"],
     )
     await rag.initialize_storages()
     return rag, course_working_dir
@@ -222,8 +241,8 @@ async def ingest_document(
         "resourceId": resource_id,
         "course": course,
         "workingDir": str(course_working_dir),
-        "model": DEEPSEEK_MODEL,
-        "embeddingModel": EMBEDDING_MODEL,
+        "model": lightrag_config()["llm"]["model"],
+        "embeddingModel": lightrag_config()["embedding"]["model"],
     }
 
 
@@ -347,10 +366,10 @@ async def query_course(
         raw_result = await rag.aquery_data(
             query,
             param=QueryParam(
-                mode="mix",
+                mode=lightrag_config()["query"]["mode"],
                 top_k=top_k,
                 chunk_top_k=chunk_top_k,
-                enable_rerank=False,
+                enable_rerank=lightrag_config()["query"]["rerank"],
             ),
         )
         data = raw_result.get("data", {}) if isinstance(raw_result, dict) else {}

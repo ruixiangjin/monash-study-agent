@@ -1,12 +1,13 @@
-import { existsSync, mkdirSync } from 'node:fs'
+import { mkdirSync } from 'node:fs'
 import { DatabaseSync } from 'node:sqlite'
-import { dirname, join, resolve } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { dirname, resolve } from 'node:path'
 
 import type { LightRAGIndexState } from './lightrag-index-state.js'
+import { loadRuntimeConfig } from '../runtime/runtime-config.js'
 
 export interface LightRAGIndexStateStoreOptions {
   readonly databasePath?: string
+  readonly configPath?: string
 }
 
 /** Persists successful LightRAG document indexes in the local runtime database. */
@@ -14,10 +15,9 @@ export class LightRAGIndexStateStore {
   readonly #database: DatabaseSync
 
   constructor(options: LightRAGIndexStateStoreOptions = {}) {
-    const moduleRelativeRoot = fileURLToPath(new URL('../../../../', import.meta.url))
-    const repositoryRoot = findRepositoryRoot(moduleRelativeRoot)
+    const runtimeConfig = loadRuntimeConfig(options.configPath)
     const databasePath = resolve(
-      options.databasePath ?? join(repositoryRoot, 'data', 'runtime', 'monash-study-agent.sqlite'),
+      options.databasePath ?? runtimeConfig.lightrag.sqlitePath,
     )
     mkdirSync(dirname(databasePath), { recursive: true })
     this.#database = new DatabaseSync(databasePath)
@@ -105,17 +105,6 @@ export class LightRAGIndexStateStore {
   close(): void {
     if (this.#database.isOpen) this.#database.close()
   }
-}
-
-function findRepositoryRoot(moduleRelativeRoot: string): string {
-  if (existsPackageJson(moduleRelativeRoot)) return moduleRelativeRoot
-  const compiledRoot = resolve(moduleRelativeRoot, '..')
-  if (existsPackageJson(compiledRoot)) return compiledRoot
-  throw new Error(`Cannot locate repository root from ${moduleRelativeRoot}`)
-}
-
-function existsPackageJson(directory: string): boolean {
-  return existsSync(join(directory, 'package.json'))
 }
 
 function stateFromRow(row: Record<string, unknown>): LightRAGIndexState {

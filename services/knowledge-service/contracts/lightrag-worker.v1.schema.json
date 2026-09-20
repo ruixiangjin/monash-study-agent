@@ -1,0 +1,63 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "monash-study://contracts/lightrag-worker.v1.schema.json",
+  "title": "Monash Study Agent LightRAG worker protocol v1",
+  "type": "object",
+  "oneOf": [
+    { "$ref": "#/$defs/request" },
+    { "$ref": "#/$defs/successResponse" },
+    { "$ref": "#/$defs/errorResponse" }
+  ],
+  "$defs": {
+    "request": {
+      "type": "object",
+      "required": ["protocolVersion", "requestId", "command", "payload"],
+      "properties": {
+        "protocolVersion": { "const": 1 },
+        "requestId": { "type": "string", "minLength": 1 },
+        "command": {
+          "enum": [
+            "health",
+            "model-health",
+            "ingest-document",
+            "delete-document",
+            "sync-course-batch",
+            "query-course"
+          ]
+        },
+        "payload": { "type": "object" }
+      },
+      "additionalProperties": false
+    },
+    "successResponse": {
+      "type": "object",
+      "required": ["protocolVersion", "requestId", "ok", "result"],
+      "properties": {
+        "protocolVersion": { "const": 1 },
+        "requestId": { "type": "string", "minLength": 1 },
+        "ok": { "const": true },
+        "result": {}
+      },
+      "additionalProperties": false
+    },
+    "errorResponse": {
+      "type": "object",
+      "required": ["protocolVersion", "requestId", "ok", "error"],
+      "properties": {
+        "protocolVersion": { "const": 1 },
+        "requestId": { "type": "string", "minLength": 1 },
+        "ok": { "const": false },
+        "error": {
+          "type": "object",
+          "required": ["code", "message"],
+          "properties": {
+            "code": { "type": "string", "minLength": 1 },
+            "message": { "type": "string", "minLength": 1 }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

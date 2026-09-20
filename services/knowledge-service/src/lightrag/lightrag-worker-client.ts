@@ -5,9 +5,16 @@ import { fileURLToPath } from 'node:url'
 import { loadEnvFile } from 'node:process'
 
 import type { NormalizedDocument } from '@monash-study/shared-types'
+import { loadRuntimeConfig, type LoadedRuntimeConfig } from '../runtime/runtime-config.js'
+import {
+  createWorkerRequest,
+  parseWorkerResponse,
+  type LightRAGWorkerCommand,
+} from './lightrag-worker-protocol.js'
 
 export interface LightRAGWorkerClientOptions {
   readonly workingDir?: string
+  readonly configPath?: string
 }
 
 export interface LightRAGHealthResult {
@@ -127,28 +134,21 @@ interface WorkerQueryResponse {
   readonly query: LightRAGQueryResult
 }
 
-interface WorkerFailureResponse {
-  readonly ok: false
-  readonly command: string
-  readonly error: {
-    readonly type: string
-    readonly message: string
-  }
-}
-
 /** Calls the project-local Python worker that owns the LightRAG runtime boundary. */
 export class LightRAGWorkerClient {
   readonly #pythonPath: string
   readonly #workerPath: string
   readonly #workingDir: string
+  readonly #runtimeConfig: LoadedRuntimeConfig
 
   constructor(options: LightRAGWorkerClientOptions = {}) {
     const moduleRelativeRoot = fileURLToPath(new URL('../../../../', import.meta.url))
     const repositoryRoot = findRepositoryRoot(moduleRelativeRoot)
+    this.#runtimeConfig = loadRuntimeConfig(options.configPath)
     loadProjectEnvironment(repositoryRoot)
     this.#pythonPath = resolve(repositoryRoot, 'services/knowledge-service/.venv/bin/python')
     this.#workerPath = resolve(repositoryRoot, 'services/knowledge-service/python/lightrag_worker.py')
-    this.#workingDir = resolve(options.workingDir ?? resolve(repositoryRoot, 'data/runtime/lightrag'))
+    this.#workingDir = resolve(options.workingDir ?? this.#runtimeConfig.lightrag.workingRoot)
   }
 
   async health(): Promise<LightRAGHealthResult> {
@@ -207,8 +207,8 @@ export class LightRAGWorkerClient {
     const response = await this.#execute('query-course', {
       course,
       query,
-      topK: options.topK ?? 20,
-      chunkTopK: options.chunkTopK ?? 20,
+      topK: options.topK ?? this.#runtimeConfig.lightrag.query.topK,
+      chunkTopK: options.chunkTopK ?? this.#runtimeConfig.lightrag.query.chunkTopK,
     })
     if (!isWorkerQuery(response)) throw invalidResponse('query-course', this.#workerPath, response)
     if (!isQueryResult(response.query)) {
@@ -218,16 +218,23 @@ export class LightRAGWorkerClient {
   }
 
   async #execute(
-    command: 'health' | 'model-health' | 'ingest-document' | 'delete-document' | 'sync-course-batch' | 'query-course',
+    command: LightRAGWorkerCommand,
     extra: Record<string, unknown> = {},
   ): Promise<unknown> {
-    const request = JSON.stringify({ command, workingDir: this.#workingDir, ...extra })
-    const result = await runWorker(this.#pythonPath, this.#workerPath, request, command)
-    const response = parseResponse(result.stdout, this.#workerPath, command)
-    if (isWorkerFailure(response)) {
-      throw new Error(`LightRAG command ${response.command} failed (${response.error.type}): ${response.error.message}`)
+    const request = createWorkerRequest(command, {
+      runtimeConfigPath: this.#runtimeConfig.configPath,
+      workingDir: this.#workingDir,
+      ...extra,
+    })
+    const result = await runWorker(this.#pythonPath, this.#workerPath, JSON.stringify(request), command)
+    const response = parseWorkerResponse(result.stdout, request.requestId)
+    if (!response.ok) {
+      throw new Error(`LightRAG command ${command} failed (${response.error.code}): ${response.error.message}`)
     }
-    return response
+    if (!isRecord(response.result)) {
+      throw new Error(`LightRAG command ${command} returned a non-object result from ${this.#workerPath}`)
+    }
+    return { ok: true, command, ...response.result }
   }
 }
 
@@ -278,14 +285,6 @@ async function runWorker(
   })
 }
 
-function parseResponse(stdout: string, workerPath: string, command: string): unknown {
-  try {
-    return JSON.parse(stdout) as unknown
-  } catch (error) {
-    throw new Error(`LightRAG command ${command} returned invalid JSON from ${workerPath}: ${errorMessage(error)}`)
-  }
-}
-
 function isWorkerSuccess(value: unknown): value is WorkerSuccessResponse {
   return isRecord(value) && value.ok === true && value.command === 'health' && isRecord(value.runtime)
 }
@@ -308,15 +307,6 @@ function isWorkerCourseBatch(value: unknown): value is WorkerCourseBatchResponse
 
 function isWorkerQuery(value: unknown): value is WorkerQueryResponse {
   return isRecord(value) && value.ok === true && value.command === 'query-course' && isRecord(value.query)
-}
-
-function isWorkerFailure(value: unknown): value is WorkerFailureResponse {
-  return isRecord(value)
-    && value.ok === false
-    && typeof value.command === 'string'
-    && isRecord(value.error)
-    && typeof value.error.type === 'string'
-    && typeof value.error.message === 'string'
 }
 
 function isHealthResult(value: unknown): value is LightRAGHealthResult {
@@ -407,9 +397,7 @@ function isRetrievedChunk(value: unknown): value is LightRAGRetrievedChunk {
 }
 
 function invalidResponse(command: string, workerPath: string, response: unknown): Error {
-  if (isWorkerFailure(response)) {
-    return new Error(`LightRAG command ${response.command} failed (${response.error.type}): ${response.error.message}`)
-  }
+  void response
   return new Error(`LightRAG command ${command} returned an invalid response from ${workerPath}`)
 }
 
