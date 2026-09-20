@@ -4,8 +4,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test, { type TestContext } from 'node:test'
 
-import type { NormalizedDocument } from '../packages/shared-types/src/normalized-document.js'
-import { NormalizedDocumentLoader } from '../services/knowledge-service/src/normalization/normalized-document-loader.js'
+import type { NormalizedDocument } from '@monash-study/shared-types'
+import { NormalizedDocumentLoader } from '@monash-study/knowledge-service'
 
 test('loads documents, ignores state, filters exactly, and sorts stably', async (context) => {
   const root = await testDirectory(context)

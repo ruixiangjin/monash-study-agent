@@ -1,4 +1,4 @@
-import type { KnowledgeService } from '../../../../packages/study-core/src/knowledge-service.js'
+import type { KnowledgeService } from '@monash-study/study-core'
 
 /**
  * LightRAG-facing capability seam. The provider will consume Resource Manifest

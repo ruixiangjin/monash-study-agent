@@ -4,20 +4,18 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test, { type TestContext } from 'node:test'
 
-import type { NormalizedDocument } from '../packages/shared-types/src/normalized-document.js'
-import type {
-  LightRAGCourseBatchOperation,
-  LightRAGCourseBatchOperationResult,
-  LightRAGCourseBatchResult,
-  LightRAGDeletionResult,
-  LightRAGIngestionResult,
-} from '../services/knowledge-service/src/lightrag/lightrag-worker-client.js'
-import { LightRAGIndexStateStore } from '../services/knowledge-service/src/lightrag/lightrag-index-state-store.js'
-import { LightRAGSyncService } from '../services/knowledge-service/src/lightrag/lightrag-sync-service.js'
+import type { NormalizedDocument } from '@monash-study/shared-types'
 import {
+  LightRAGIndexStateStore,
+  LightRAGSyncService,
   NormalizedDocumentLoader,
+  type LightRAGCourseBatchOperation,
+  type LightRAGCourseBatchOperationResult,
+  type LightRAGCourseBatchResult,
+  type LightRAGDeletionResult,
+  type LightRAGIngestionResult,
   type NormalizedDocumentFilter,
-} from '../services/knowledge-service/src/normalization/normalized-document-loader.js'
+} from '@monash-study/knowledge-service'
 
 test('indexes a new document and writes state only after ingestion', async (context) => {
   const document = normalizedDocument()

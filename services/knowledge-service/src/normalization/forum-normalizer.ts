@@ -1,6 +1,6 @@
 import { readFile } from 'node:fs/promises'
 
-import type { Resource } from '../../../../packages/shared-types/src/resource.js'
+import type { Resource } from '@monash-study/shared-types'
 import type {
   NormalizedDocumentDraft,
   ResourceNormalizer,

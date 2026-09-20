@@ -1,4 +1,4 @@
-import type { NormalizedDocument } from '../../../../packages/shared-types/src/normalized-document.js'
+import type { NormalizedDocument } from '@monash-study/shared-types'
 
 /** Metadata for the version of a document that was successfully indexed. */
 export interface LightRAGIndexState {

@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import type { NormalizedDocument } from '../packages/shared-types/src/normalized-document.js'
-import { isDocumentIndexCurrent, type LightRAGIndexState } from '../services/knowledge-service/src/lightrag/lightrag-index-state.js'
+import type { NormalizedDocument } from '@monash-study/shared-types'
+import { isDocumentIndexCurrent, type LightRAGIndexState } from '@monash-study/knowledge-service'
 
 test('compares every field that identifies an indexed document version', () => {
   const document = normalizedDocument()

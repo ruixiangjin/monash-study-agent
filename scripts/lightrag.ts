@@ -1,7 +1,9 @@
-import { LightRAGWorkerClient } from '../services/knowledge-service/src/lightrag/lightrag-worker-client.js'
-import { LightRAGKnowledgeService } from '../services/knowledge-service/src/lightrag/lightrag-knowledge-service.js'
-import { LightRAGSyncService } from '../services/knowledge-service/src/lightrag/lightrag-sync-service.js'
-import { NormalizedDocumentLoader } from '../services/knowledge-service/src/normalization/normalized-document-loader.js'
+import {
+  LightRAGKnowledgeService,
+  LightRAGSyncService,
+  LightRAGWorkerClient,
+  NormalizedDocumentLoader,
+} from '@monash-study/knowledge-service'
 
 const args = process.argv.slice(2)
 const commandArguments = args[0] === '--' ? args.slice(1) : args
@@ -144,7 +146,8 @@ try {
         `Title: ${item.title}`,
         `Course: ${item.course ?? 'UNCLASSIFIED'}`,
         `Week: ${item.metadata.week ?? 'unknown'}`,
-        `Source: ${item.source}`,
+        `Source system: ${item.sourceSystem}`,
+        `Retrieval provider: ${item.retrievalProvider}`,
         `Chunk: ${chunkId ?? 'unknown'}`,
         `Content: ${preview(item.content)}`,
       )

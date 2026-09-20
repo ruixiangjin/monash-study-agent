@@ -1,8 +1,8 @@
 import type {
   NormalizedContentType,
   NormalizedLocator,
-} from '../../../../packages/shared-types/src/normalized-document.js'
-import type { Resource } from '../../../../packages/shared-types/src/resource.js'
+  Resource,
+} from '@monash-study/shared-types'
 
 /** Handler output completed with Resource metadata by NormalizationService. */
 export interface NormalizedDocumentDraft {

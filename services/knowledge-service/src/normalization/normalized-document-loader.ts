@@ -6,8 +6,8 @@ import type {
   NormalizedContentType,
   NormalizedDocument,
   NormalizedLocator,
-} from '../../../../packages/shared-types/src/normalized-document.js'
-import type { ResourceSource } from '../../../../packages/shared-types/src/resource.js'
+  ResourceSource,
+} from '@monash-study/shared-types'
 
 export interface NormalizedDocumentFilter {
   readonly course?: string

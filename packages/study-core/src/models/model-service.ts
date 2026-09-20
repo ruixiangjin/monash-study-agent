@@ -1,5 +1,4 @@
-import type { Evidence } from '../../../shared-types/src/evidence.js'
-import type { StudyState } from '../../../shared-types/src/study.js'
+import type { Evidence, StudyState } from '@monash-study/shared-types'
 
 /** Input to a language model provider after retrieval and tool execution. */
 export interface StudyGenerationRequest {

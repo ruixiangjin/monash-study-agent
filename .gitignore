@@ -10,3 +10,4 @@ __pycache__/
 !.env.example
 data/runtime/
 data/normalized/
+config/sources.local.json

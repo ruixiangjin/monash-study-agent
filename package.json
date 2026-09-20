@@ -9,7 +9,7 @@
     "check": "pnpm run typecheck",
     "lightrag": "tsx scripts/lightrag.ts",
     "normalize": "tsx scripts/normalize.ts",
-    "scan": "tsx scripts/scan-resources.ts --config config/sources.json --output resources/resources.json",
+    "scan": "tsx scripts/scan-resources.ts --config config/sources.local.json --output resources/resources.json",
     "test": "tsx --test tests/**/*.test.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
@@ -21,11 +21,15 @@
   },
   "devDependencies": {
     "@deepseek-ai/cordis": "^4.0.2",
+    "@monash-study/dsh-integration": "workspace:*",
     "@types/node": "^22.20.0",
     "tsx": "^4.22.4",
     "typescript": "^6.0.3"
   },
   "dependencies": {
-    "csv-parse": "^7.0.2"
+    "@monash-study/knowledge-service": "workspace:*",
+    "@monash-study/shared-types": "workspace:*",
+    "@monash-study/study-controller": "workspace:*",
+    "@monash-study/study-core": "workspace:*"
   }
 }

@@ -4,17 +4,15 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test, { type TestContext } from 'node:test'
 
-import type { NormalizedDocument } from '../packages/shared-types/src/normalized-document.js'
-import { LightRAGIndexStateStore } from '../services/knowledge-service/src/lightrag/lightrag-index-state-store.js'
-import { LightRAGKnowledgeService } from '../services/knowledge-service/src/lightrag/lightrag-knowledge-service.js'
-import type {
-  LightRAGQueryResult,
-  LightRAGRetrievedChunk,
-} from '../services/knowledge-service/src/lightrag/lightrag-worker-client.js'
+import type { NormalizedDocument } from '@monash-study/shared-types'
 import {
+  LightRAGIndexStateStore,
+  LightRAGKnowledgeService,
   NormalizedDocumentLoader,
   type NormalizedDocumentFilter,
-} from '../services/knowledge-service/src/normalization/normalized-document-loader.js'
+  type LightRAGQueryResult,
+  type LightRAGRetrievedChunk,
+} from '@monash-study/knowledge-service'
 
 test('maps a structured chunk to Evidence using NormalizedDocument metadata', async (context) => {
   const document = normalizedDocument()
@@ -41,7 +39,8 @@ test('maps a structured chunk to Evidence using NormalizedDocument metadata', as
   assert.equal(evidence.resourceId, document.resourceId)
   assert.equal(evidence.title, document.title)
   assert.equal(evidence.course, document.course)
-  assert.equal(evidence.source, document.source)
+  assert.equal(evidence.sourceSystem, document.source)
+  assert.equal(evidence.retrievalProvider, 'lightrag')
   assert.equal(evidence.score, 0.91)
   assert.equal(evidence.content, 'A fast-forward merge moves the branch pointer forward.')
   assert.equal(evidence.metadata.documentId, document.documentId)

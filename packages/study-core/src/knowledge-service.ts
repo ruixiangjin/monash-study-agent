@@ -1,4 +1,4 @@
-import type { Evidence } from '../../shared-types/src/evidence.js'
+import type { Evidence } from '@monash-study/shared-types'
 
 /** Query accepted by a replaceable knowledge retrieval provider. */
 export interface KnowledgeQuery {

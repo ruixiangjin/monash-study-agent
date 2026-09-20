@@ -4,7 +4,7 @@ import { resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { loadEnvFile } from 'node:process'
 
-import type { NormalizedDocument } from '../../../../packages/shared-types/src/normalized-document.js'
+import type { NormalizedDocument } from '@monash-study/shared-types'
 
 export interface LightRAGWorkerClientOptions {
   readonly workingDir?: string

@@ -4,8 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test, { type TestContext } from 'node:test'
 
-import type { LightRAGIndexState } from '../services/knowledge-service/src/lightrag/lightrag-index-state.js'
-import { LightRAGIndexStateStore } from '../services/knowledge-service/src/lightrag/lightrag-index-state-store.js'
+import { LightRAGIndexStateStore, type LightRAGIndexState } from '@monash-study/knowledge-service'
 
 test('creates and persists the LightRAG index state schema', async (context) => {
   const root = await testDirectory(context)

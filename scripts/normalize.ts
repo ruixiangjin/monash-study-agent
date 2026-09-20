@@ -1,12 +1,12 @@
 import { readFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
 
-import type { ResourceRoot } from '../packages/shared-types/src/resource.js'
-import { LocalKnowledgeService } from '../services/knowledge-service/src/local/local-knowledge-service.js'
+import type { ResourceRoot } from '@monash-study/shared-types'
 import {
   NormalizationService,
   type NormalizationResult,
-} from '../services/knowledge-service/src/normalization/normalization-service.js'
+} from '@monash-study/knowledge-service'
+import { LocalKnowledgeService } from '@monash-study/knowledge-service'
 
 interface SourceConfigFile {
   readonly roots: readonly ResourceRoot[]
@@ -19,7 +19,7 @@ if (scope !== 'all' && scope !== 'course' && scope !== 'resource') showUsage()
 if ((scope === 'course' || scope === 'resource') && selector === undefined) showUsage()
 
 const options = parseOptions(scope === 'all' ? [selector, ...optionArguments].filter(isString) : optionArguments)
-const sourceConfigPath = resolve(options.get('--config') ?? 'config/sources.json')
+const sourceConfigPath = resolve(options.get('--config') ?? 'config/sources.local.json')
 const manifestPath = resolve(options.get('--manifest') ?? 'resources/resources.json')
 const outputRoot = resolve(options.get('--output') ?? 'data/normalized')
 const sourceConfig = JSON.parse(await readFile(sourceConfigPath, 'utf8')) as SourceConfigFile

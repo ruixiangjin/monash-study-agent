@@ -1,5 +1,4 @@
-import type { Evidence } from '../../shared-types/src/evidence.js'
-import type { StudyIntent } from '../../shared-types/src/study.js'
+import type { Evidence, StudyIntent } from '@monash-study/shared-types'
 
 /** Decisions required by the controller, implemented later by TypeSafe JEV. */
 export interface StudyDecisionService {

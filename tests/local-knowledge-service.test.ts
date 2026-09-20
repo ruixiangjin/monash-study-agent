@@ -8,7 +8,7 @@ import test from 'node:test'
 import {
   LocalKnowledgeService,
   UnsupportedResourceReadError,
-} from '../services/knowledge-service/src/local/local-knowledge-service.js'
+} from '@monash-study/knowledge-service'
 
 test('builds unified metadata and reads supported text', async (context) => {
   const root = await mkdtemp(join(tmpdir(), 'monash-study-'))

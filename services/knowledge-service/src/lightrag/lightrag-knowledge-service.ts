@@ -1,8 +1,7 @@
 import { createHash } from 'node:crypto'
 
-import type { Evidence } from '../../../../packages/shared-types/src/evidence.js'
-import type { NormalizedDocument } from '../../../../packages/shared-types/src/normalized-document.js'
-import type { KnowledgeQuery, KnowledgeService } from '../../../../packages/study-core/src/knowledge-service.js'
+import type { Evidence, NormalizedDocument } from '@monash-study/shared-types'
+import type { KnowledgeQuery, KnowledgeService } from '@monash-study/study-core'
 import { NormalizedDocumentLoader } from '../normalization/normalized-document-loader.js'
 import { LightRAGIndexStateStore } from './lightrag-index-state-store.js'
 import {
@@ -121,7 +120,8 @@ function toEvidence(
     resourceId: document.resourceId,
     title: document.title,
     content: chunk.content,
-    source: document.source,
+    sourceSystem: document.source,
+    retrievalProvider: 'lightrag',
     metadata,
   } satisfies Omit<Evidence, 'course' | 'score'>
   const withCourse = document.course === null ? base : { ...base, course: document.course }

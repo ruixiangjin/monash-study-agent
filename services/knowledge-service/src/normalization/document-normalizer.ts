@@ -1,4 +1,4 @@
-import type { Resource } from '../../../../packages/shared-types/src/resource.js'
+import type { Resource } from '@monash-study/shared-types'
 import { DoclingAdapter } from './docling-adapter.js'
 import {
   documentIdForResource,

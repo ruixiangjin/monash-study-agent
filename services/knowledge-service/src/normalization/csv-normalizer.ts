@@ -2,7 +2,7 @@ import { readFile } from 'node:fs/promises'
 
 import { parse } from 'csv-parse/sync'
 
-import type { Resource } from '../../../../packages/shared-types/src/resource.js'
+import type { Resource } from '@monash-study/shared-types'
 import {
   documentIdForResource,
   type NormalizedDocumentDraft,

@@ -1,4 +1,4 @@
-import type { NormalizedDocument } from '../../../../packages/shared-types/src/normalized-document.js'
+import type { NormalizedDocument } from '@monash-study/shared-types'
 import { NormalizedDocumentLoader } from '../normalization/normalized-document-loader.js'
 import {
   isDocumentIndexCurrent,

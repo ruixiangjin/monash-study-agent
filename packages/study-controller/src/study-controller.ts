@@ -1,8 +1,10 @@
-import type { StudyDecisionService } from '../../study-core/src/decision-service.js'
-import type { KnowledgeService } from '../../study-core/src/knowledge-service.js'
-import type { StudyModelService } from '../../study-core/src/models/model-service.js'
-import type { StudyTool } from '../../study-core/src/tools/study-tool.js'
-import type { StudyState } from '../../shared-types/src/study.js'
+import type {
+  KnowledgeService,
+  StudyDecisionService,
+  StudyModelService,
+  StudyTool,
+} from '@monash-study/study-core'
+import type { StudyState } from '@monash-study/shared-types'
 
 /** Replaceable services coordinated by the future StudyController workflow. */
 export interface StudyControllerDependencies {

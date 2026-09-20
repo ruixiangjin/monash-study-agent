@@ -1,8 +1,8 @@
 import { readFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
 
-import type { ResourceRoot } from '../packages/shared-types/src/resource.js'
-import { LocalKnowledgeService } from '../services/knowledge-service/src/local/local-knowledge-service.js'
+import type { ResourceRoot } from '@monash-study/shared-types'
+import { LocalKnowledgeService } from '@monash-study/knowledge-service'
 
 interface RootConfigFile {
   readonly roots: readonly ResourceRoot[]

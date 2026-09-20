@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { isAbsolute, join } from 'node:path'
 import test from 'node:test'
 
-import { LightRAGWorkerClient } from '../services/knowledge-service/src/lightrag/lightrag-worker-client.js'
+import { LightRAGWorkerClient } from '@monash-study/knowledge-service'
 
 test('performs a real LightRAG Python runtime health check', async (context) => {
   const directory = await mkdtemp(join(tmpdir(), 'monash-lightrag-worker-'))

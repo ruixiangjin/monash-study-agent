@@ -6,8 +6,8 @@ import { tmpdir } from 'node:os'
 import { basename, extname, join } from 'node:path'
 import test, { type TestContext } from 'node:test'
 
-import type { Resource } from '../packages/shared-types/src/resource.js'
-import { NormalizationService } from '../services/knowledge-service/src/normalization/normalization-service.js'
+import type { Resource } from '@monash-study/shared-types'
+import { NormalizationService } from '@monash-study/knowledge-service'
 
 test('normalizes a PDF text layer through Docling', { timeout: 300_000 }, async (context) => {
   const directory = await testDirectory(context)

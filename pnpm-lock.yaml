@@ -8,13 +8,25 @@ importers:
 
   .:
     dependencies:
-      csv-parse:
-        specifier: ^7.0.2
-        version: 7.0.2
+      '@monash-study/knowledge-service':
+        specifier: workspace:*
+        version: link:services/knowledge-service
+      '@monash-study/shared-types':
+        specifier: workspace:*
+        version: link:packages/shared-types
+      '@monash-study/study-controller':
+        specifier: workspace:*
+        version: link:packages/study-controller
+      '@monash-study/study-core':
+        specifier: workspace:*
+        version: link:packages/study-core
     devDependencies:
       '@deepseek-ai/cordis':
         specifier: ^4.0.2
         version: 4.0.2
+      '@monash-study/dsh-integration':
+        specifier: workspace:*
+        version: link:packages/dsh-integration
       '@types/node':
         specifier: ^22.20.0
         version: 22.20.4
@@ -24,6 +36,65 @@ importers:
       typescript:
         specifier: ^6.0.3
         version: 6.0.3
+
+  connectors/ed:
+    dependencies:
+      '@monash-study/study-core':
+        specifier: workspace:*
+        version: link:../../packages/study-core
+
+  connectors/moodle:
+    dependencies:
+      '@monash-study/study-core':
+        specifier: workspace:*
+        version: link:../../packages/study-core
+
+  packages/dsh-integration:
+    dependencies:
+      '@deepseek-ai/cordis':
+        specifier: ^4.0.2
+        version: 4.0.2
+      '@monash-study/knowledge-service':
+        specifier: workspace:*
+        version: link:../../services/knowledge-service
+      '@monash-study/shared-types':
+        specifier: workspace:*
+        version: link:../shared-types
+      '@monash-study/study-controller':
+        specifier: workspace:*
+        version: link:../study-controller
+
+  packages/shared-types: {}
+
+  packages/study-controller:
+    dependencies:
+      '@monash-study/knowledge-service':
+        specifier: workspace:*
+        version: link:../../services/knowledge-service
+      '@monash-study/shared-types':
+        specifier: workspace:*
+        version: link:../shared-types
+      '@monash-study/study-core':
+        specifier: workspace:*
+        version: link:../study-core
+
+  packages/study-core:
+    dependencies:
+      '@monash-study/shared-types':
+        specifier: workspace:*
+        version: link:../shared-types
+
+  services/knowledge-service:
+    dependencies:
+      '@monash-study/shared-types':
+        specifier: workspace:*
+        version: link:../../packages/shared-types
+      '@monash-study/study-core':
+        specifier: workspace:*
+        version: link:../../packages/study-core
+      csv-parse:
+        specifier: ^7.0.2
+        version: 7.0.2
 
 packages:
 

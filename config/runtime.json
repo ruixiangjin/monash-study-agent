@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 1,
+  "knowledgeProvider": "lightrag",
+  "lightrag": {
+    "workingRoot": "data/runtime/lightrag",
+    "sqlitePath": "data/runtime/monash-study-agent.sqlite",
+    "llm": {
+      "model": "deepseek-flash",
+      "baseUrl": "https://api.deepseek.com"
+    },
+    "embedding": {
+      "model": "BAAI/bge-m3",
+      "dimension": 1024,
+      "maxTokens": 8192,
+      "batchSize": 4,
+      "maxAsync": 1
+    },
+    "query": {
+      "mode": "mix",
+      "rerank": false,
+      "topK": 20,
+      "chunkTopK": 20
+    }
+  }
+}

@@ -16,7 +16,7 @@ import type {
   ResourceSource,
   ResourceText,
   ResourceType,
-} from '../../../../packages/shared-types/src/resource.js'
+} from '@monash-study/shared-types'
 
 const CODE_EXTENSIONS = new Set([
   '.awk', '.bash', '.c', '.cc', '.cpp', '.css', '.go', '.h', '.hpp', '.hs', '.html',

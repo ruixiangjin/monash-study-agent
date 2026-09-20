@@ -1,4 +1,4 @@
-import type { Evidence } from '../../../shared-types/src/evidence.js'
+import type { Evidence } from '@monash-study/shared-types'
 
 /** Structured request passed from StudyController to a course-domain tool. */
 export interface StudyToolRequest {

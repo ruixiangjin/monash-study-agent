@@ -2,7 +2,7 @@ import { spawn } from 'node:child_process'
 import { resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-import type { NormalizedRegion } from '../../../../packages/shared-types/src/normalized-document.js'
+import type { NormalizedRegion } from '@monash-study/shared-types'
 
 /** JSON result emitted by the pinned Docling worker. */
 export interface DoclingConversion {

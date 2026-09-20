@@ -3,7 +3,7 @@ import { Service, type Context } from '@deepseek-ai/cordis'
 import {
   LocalKnowledgeService,
   type LocalKnowledgeConfig,
-} from '../../../services/knowledge-service/src/local/local-knowledge-service.js'
+} from '@monash-study/knowledge-service'
 
 declare module '@deepseek-ai/cordis' {
   interface Context {
