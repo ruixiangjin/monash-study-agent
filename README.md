@@ -65,7 +65,7 @@ pnpm run build
 pnpm test
 ```
 
-`config/sources.json` identifies the current local course directories. Copy `config/sources.example.json` when configuring another machine. Scanning reads source files and downloader manifests without modifying the course libraries.
+`config/sources.local.json` identifies the current machine's local course directories and is ignored by Git. Use `config/sources.example.json` as the portable template when configuring another machine. Scanning reads source files and downloader manifests without modifying the course libraries. Non-secret LightRAG runtime settings are shared through `config/runtime.json`; `.env` contains only `DEEPSEEK_API_KEY`.
 
 ### LightRAG model runtime
 
@@ -75,15 +75,18 @@ The real LightRAG model runtime requires a local DeepSeek API key. Copy `.env.ex
 pnpm lightrag -- health
 pnpm lightrag -- model-health
 pnpm lightrag -- ingest-document <documentId>
+pnpm smoke:lightrag
 ```
 
 The CLI loads the repository-root `.env` automatically. The file is ignored by Git; do not commit the key.
 
-The Python environment is local to `services/knowledge-service/.venv` and is not committed. Docling is pinned in `services/knowledge-service/uv.lock`; on macOS the project uses its native OCR backend, while other platforms use RapidOCR. Normalized Markdown is intended for inspection and later LightRAG ingestion, and the adjacent JSON files retain complete metadata and locators. Generated output and state remain untracked.
+The Python environment is local to `services/knowledge-service/.venv` and is not committed. Docling is pinned in `services/knowledge-service/uv.lock`; on macOS the project uses its native OCR backend, while other platforms use RapidOCR. The LightRAG bridge uses the versioned JSON stdin/stdout contract in `services/knowledge-service/contracts/lightrag-worker.v1.schema.json`. Normalized Markdown is intended for inspection and LightRAG ingestion, and the adjacent JSON files retain complete metadata and locators. Generated output and state remain untracked.
+
+LightRAG index state is stored in `data/runtime/monash-study-agent.sqlite`. Its schema is managed by ordered migrations, including the `lightrag_index_state` table and the recoverable course-sync journal. Existing index state is migrated in place; the database is not recreated during normal upgrades.
 
 ## Runtime integration
 
-`packages/dsh-integration` is the only module that imports Cordis. It currently registers `ctx.monashStudyKnowledge`, backed by the product-owned `LocalKnowledgeService`. Later DSH tool schemas, presentation metadata, preset composition, and UI extensions belong in this integration layer or their product modules, not in DSH Core.
+`packages/dsh-integration` is the only module that imports Cordis. It currently registers `ctx.monashStudyKnowledge` through the product-owned `StudyRuntime` composition boundary, whose default knowledge provider is LightRAG. DSH integration does not import `LightRAGWorkerClient`, SQLite state, or Python internals. Later DSH tool schemas, presentation metadata, preset composition, and UI extensions belong in this integration layer or their product modules, not in DSH Core.
 
 ## Next architecture stages
 

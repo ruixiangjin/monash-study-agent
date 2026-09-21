@@ -26,6 +26,11 @@ export interface LightRAGKnowledgeServiceOptions {
   readonly configPath?: string
 }
 
+export interface LightRAGSearchResult {
+  readonly evidence: readonly Evidence[]
+  readonly unresolvedChunks: number
+}
+
 /** Provides structured LightRAG retrieval enriched with authoritative course metadata. */
 export class LightRAGKnowledgeService implements KnowledgeService {
   readonly #client: LightRAGQueryClient
@@ -41,6 +46,10 @@ export class LightRAGKnowledgeService implements KnowledgeService {
   }
 
   async search(query: KnowledgeQuery): Promise<readonly Evidence[]> {
+    return (await this.searchDetailed(query)).evidence
+  }
+
+  async searchDetailed(query: KnowledgeQuery): Promise<LightRAGSearchResult> {
     const text = query.query.trim()
     if (!text) throw new Error('Knowledge query must not be empty')
 
@@ -52,7 +61,9 @@ export class LightRAGKnowledgeService implements KnowledgeService {
       throw new Error('Knowledge query week must be a non-negative integer')
     }
 
-    if (this.#stateStore.listByCourse(course).length === 0) return []
+    if (this.#stateStore.listByCourse(course).length === 0) {
+      return { evidence: [], unresolvedChunks: 0 }
+    }
 
     const documents = await this.#loader.list({ course })
     const documentById = new Map(documents.map((document) => [document.documentId, document]))
@@ -89,7 +100,10 @@ export class LightRAGKnowledgeService implements KnowledgeService {
         return rightScore - leftScore || left.order - right.order
       })
     }
-    return mapped.slice(0, limit).map((item) => item.evidence)
+    return {
+      evidence: mapped.slice(0, limit).map((item) => item.evidence),
+      unresolvedChunks: result.unresolved,
+    }
   }
 }
 

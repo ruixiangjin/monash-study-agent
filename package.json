@@ -10,6 +10,7 @@
     "lightrag": "tsx scripts/lightrag.ts",
     "normalize": "tsx scripts/normalize.ts",
     "scan": "tsx scripts/scan-resources.ts --config config/sources.local.json --output resources/resources.json",
+    "smoke:lightrag": "tsx scripts/smoke-lightrag.ts",
     "test": "tsx --test tests/**/*.test.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
