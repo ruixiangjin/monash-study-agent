@@ -33,11 +33,13 @@ The current generated Manifest contains 344 resources and remains at `resources/
 monash-study-agent/
 ├── packages/
 │   ├── shared-types/          Resource, Evidence, and Study state types
+│   ├── runtime-database/      Shared SQLite connection and migrations
 │   ├── study-core/            Knowledge, decision, model, and tool capabilities
 │   ├── study-controller/      Study workflow orchestration interface
 │   └── dsh-integration/       Cordis service and future DSH tool registration
 ├── services/
-│   └── knowledge-service/     Discovery, normalization, Docling, and LightRAG seam
+│   ├── knowledge-service/     Discovery, normalization, Docling, and LightRAG seam
+│   └── memory-service/        Long-term Memory schema and deterministic store
 ├── connectors/
 │   ├── ed/                    Future Ed sync and live connector
 │   └── moodle/                Future Moodle sync and live connector
@@ -82,7 +84,7 @@ The CLI loads the repository-root `.env` automatically. The file is ignored by G
 
 The Python environment is local to `services/knowledge-service/.venv` and is not committed. Docling is pinned in `services/knowledge-service/uv.lock`; on macOS the project uses its native OCR backend, while other platforms use RapidOCR. The LightRAG bridge uses the versioned JSON stdin/stdout contract in `services/knowledge-service/contracts/lightrag-worker.v1.schema.json`. Normalized Markdown is intended for inspection and LightRAG ingestion, and the adjacent JSON files retain complete metadata and locators. Generated output and state remain untracked.
 
-LightRAG index state is stored in `data/runtime/monash-study-agent.sqlite`. Its schema is managed by ordered migrations, including the `lightrag_index_state` table and the recoverable course-sync journal. Existing index state is migrated in place; the database is not recreated during normal upgrades.
+LightRAG index state and long-term Memory share `data/runtime/monash-study-agent.sqlite`. The small `runtime-database` package owns the SQLite connection and ordered migrations; Knowledge and Memory services remain responsible for their own behavior. Existing state is migrated in place and the database is not recreated during normal upgrades.
 
 ## Runtime integration
 

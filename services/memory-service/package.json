@@ -1,5 +1,5 @@
 {
-  "name": "@monash-study/knowledge-service",
+  "name": "@monash-study/memory-service",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -10,8 +10,6 @@
   },
   "dependencies": {
     "@monash-study/runtime-database": "workspace:*",
-    "@monash-study/shared-types": "workspace:*",
-    "@monash-study/study-core": "workspace:*",
-    "csv-parse": "^7.0.2"
+    "@monash-study/shared-types": "workspace:*"
   }
 }

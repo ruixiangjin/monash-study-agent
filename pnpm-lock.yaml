@@ -11,6 +11,9 @@ importers:
       '@monash-study/knowledge-service':
         specifier: workspace:*
         version: link:services/knowledge-service
+      '@monash-study/memory-service':
+        specifier: workspace:*
+        version: link:services/memory-service
       '@monash-study/shared-types':
         specifier: workspace:*
         version: link:packages/shared-types
@@ -64,6 +67,8 @@ importers:
         specifier: workspace:*
         version: link:../study-controller
 
+  packages/runtime-database: {}
+
   packages/shared-types: {}
 
   packages/study-controller:
@@ -86,6 +91,9 @@ importers:
 
   services/knowledge-service:
     dependencies:
+      '@monash-study/runtime-database':
+        specifier: workspace:*
+        version: link:../../packages/runtime-database
       '@monash-study/shared-types':
         specifier: workspace:*
         version: link:../../packages/shared-types
@@ -95,6 +103,15 @@ importers:
       csv-parse:
         specifier: ^7.0.2
         version: 7.0.2
+
+  services/memory-service:
+    dependencies:
+      '@monash-study/runtime-database':
+        specifier: workspace:*
+        version: link:../../packages/runtime-database
+      '@monash-study/shared-types':
+        specifier: workspace:*
+        version: link:../../packages/shared-types
 
 packages:
 

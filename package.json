@@ -29,6 +29,7 @@
   },
   "dependencies": {
     "@monash-study/knowledge-service": "workspace:*",
+    "@monash-study/memory-service": "workspace:*",
     "@monash-study/shared-types": "workspace:*",
     "@monash-study/study-controller": "workspace:*",
     "@monash-study/study-core": "workspace:*"
