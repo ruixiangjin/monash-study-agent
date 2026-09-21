@@ -40,6 +40,7 @@ test('creates and persists the LightRAG index state schema', async (context) => 
     { version: 1, name: 'create-lightrag-index-state' },
     { version: 2, name: 'create-knowledge-sync-journal' },
     { version: 3, name: 'create-memory-foundation' },
+    { version: 4, name: 'create-memory-recall-indexes' },
   ])
   database.close()
 

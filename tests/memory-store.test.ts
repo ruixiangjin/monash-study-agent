@@ -170,6 +170,7 @@ async function testAddRollback(context: TestContext): Promise<void> {
   assert.throws(() => store.add(preference()), /forced event failure/)
   assert.equal(store.get('memory-1'), undefined)
   assert.equal(store.getEmbedding('memory-1'), undefined)
+  assert.equal(store.searchFts(['memory-1'], 'bilingual').size, 0)
 }
 
 async function testUpdateRollback(context: TestContext): Promise<void> {
@@ -186,6 +187,8 @@ async function testUpdateRollback(context: TestContext): Promise<void> {
   }), /forced event failure/)
   assert.equal(store.get('memory-1')?.content, 'Prefers bilingual explanations.')
   assert.deepEqual(store.getEmbedding('memory-1'), before)
+  assert.equal(store.searchFts(['memory-1'], 'bilingual').size, 1)
+  assert.equal(store.searchFts(['memory-1'], 'Changed').size, 0)
 }
 
 async function testResolveRollback(context: TestContext): Promise<void> {
@@ -202,6 +205,7 @@ async function testResolveRollback(context: TestContext): Promise<void> {
   assert.throws(() => store.resolve('weakness-1'), /forced event failure/)
   assert.equal(store.get('weakness-1')?.status, 'active')
   assert.notEqual(store.getEmbedding('weakness-1'), undefined)
+  assert.equal(store.searchFts(['weakness-1'], 'memory').size, 1)
 }
 
 async function testArchiveRollback(context: TestContext): Promise<void> {
@@ -211,6 +215,7 @@ async function testArchiveRollback(context: TestContext): Promise<void> {
   assert.throws(() => store.archive('episode-1'), /forced event failure/)
   assert.equal(store.get('episode-1')?.status, 'active')
   assert.notEqual(store.getEmbedding('episode-1'), undefined)
+  assert.equal(store.searchFts(['episode-1'], 'Episode').size, 1)
 }
 
 async function testDeleteRollback(context: TestContext): Promise<void> {
@@ -220,6 +225,7 @@ async function testDeleteRollback(context: TestContext): Promise<void> {
   assert.throws(() => store.delete('memory-1'), /forced event failure/)
   assert.notEqual(store.get('memory-1'), undefined)
   assert.notEqual(store.getEmbedding('memory-1'), undefined)
+  assert.equal(store.searchFts(['memory-1'], 'bilingual').size, 1)
 }
 
 function installFailingEventTrigger(databasePath: string, operation: string): void {

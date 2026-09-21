@@ -2,7 +2,7 @@ import { mkdirSync } from 'node:fs'
 import { DatabaseSync } from 'node:sqlite'
 import { dirname } from 'node:path'
 
-export const RUNTIME_DATABASE_SCHEMA_VERSION = 3
+export const RUNTIME_DATABASE_SCHEMA_VERSION = 4
 
 interface Migration {
   readonly version: number
@@ -121,6 +121,31 @@ const MIGRATIONS: readonly Migration[] = [
         );
         CREATE INDEX IF NOT EXISTS idx_memory_events_memory_time
         ON memory_events(memory_id, timestamp);
+      `)
+    },
+  },
+  {
+    version: 4,
+    name: 'create-memory-recall-indexes',
+    apply(database) {
+      database.exec(`
+        CREATE VIRTUAL TABLE IF NOT EXISTS memory_fts USING fts5(
+          memory_id UNINDEXED,
+          content,
+          tokenize = 'unicode61'
+        );
+        INSERT INTO memory_fts (memory_id, content)
+        SELECT memory_id, content
+        FROM memories
+        WHERE status = 'active';
+
+        CREATE TABLE IF NOT EXISTS memory_episode_consolidations (
+          episode_id TEXT NOT NULL REFERENCES memories(memory_id) ON DELETE CASCADE,
+          memory_id TEXT NOT NULL REFERENCES memories(memory_id) ON DELETE CASCADE,
+          created_at TEXT NOT NULL,
+          PRIMARY KEY (episode_id, memory_id),
+          CHECK (episode_id <> memory_id)
+        );
       `)
     },
   },

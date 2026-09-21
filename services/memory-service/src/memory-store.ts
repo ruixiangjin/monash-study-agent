@@ -62,6 +62,11 @@ export interface UpdateMemoryInput {
   readonly embedding: MemoryEmbeddingInput
 }
 
+export interface MemoryScopeFilter {
+  readonly course?: string
+  readonly topic?: string
+}
+
 /** Deterministic persistence and lifecycle operations for long-term student memory. */
 export class MemoryStore {
   readonly #database: DatabaseSync
@@ -106,6 +111,7 @@ export class MemoryStore {
         input.lastConfirmedAt ?? null,
       )
       this.#writeEmbedding(memoryId, input.content.trim(), input.embedding, timestamp)
+      this.#upsertFts(memoryId, input.content.trim())
       this.#writeEvent(memoryId, 'ADD', timestamp)
     })
     return { operation: 'ADD', memory: requireMemory(this.get(memoryId), memoryId) }
@@ -135,6 +141,7 @@ export class MemoryStore {
         memoryId,
       )
       this.#writeEmbedding(memoryId, input.content.trim(), input.embedding, timestamp)
+      this.#upsertFts(memoryId, input.content.trim())
       this.#writeEvent(memoryId, 'UPDATE', timestamp)
     })
     return { operation: 'UPDATE', memory: requireMemory(this.get(memoryId), memoryId) }
@@ -163,6 +170,7 @@ export class MemoryStore {
     const timestamp = this.#timestamp()
     this.#transaction(() => {
       this.#database.prepare('DELETE FROM memory_embeddings WHERE memory_id = ?').run(memoryId)
+      this.#deleteFts(memoryId)
       this.#database.prepare('DELETE FROM memories WHERE memory_id = ?').run(memoryId)
       this.#writeEvent(memoryId, 'DELETE', timestamp)
     })
@@ -190,6 +198,94 @@ export class MemoryStore {
       .prepare(`${memorySelect()} WHERE status = 'active' ORDER BY created_at, memory_id`)
       .all()
       .map(memoryFromRow)
+  }
+
+  listActiveGlobal(limit = 20): readonly StudentMemory[] {
+    if (!Number.isInteger(limit) || limit < 1) throw new Error('Global memory limit must be positive')
+    return this.#database.prepare(`
+      ${memorySelect()}
+      WHERE status = 'active'
+        AND scope = 'global'
+        AND kind IN ('preference', 'study_strategy')
+      ORDER BY CASE kind WHEN 'preference' THEN 0 ELSE 1 END,
+               importance DESC, updated_at DESC, memory_id
+      LIMIT ?
+    `).all(limit).map(memoryFromRow)
+  }
+
+  listActiveForScope(filter: MemoryScopeFilter): readonly StudentMemory[] {
+    const course = normalizedNullable(filter.course)
+    const topic = normalizedNullable(filter.topic)
+    if (course === null && topic === null) return []
+    const clauses: string[] = []
+    const parameters: string[] = []
+    if (course !== null) {
+      clauses.push("(scope = 'course' AND course = ?)")
+      parameters.push(course)
+    }
+    if (topic !== null) {
+      clauses.push("(scope = 'topic' AND topic = ? AND (course IS NULL OR course = ?))")
+      parameters.push(topic, course ?? '')
+    }
+    return this.#database.prepare(`
+      ${memorySelect()}
+      WHERE status = 'active' AND (${clauses.join(' OR ')})
+      ORDER BY updated_at DESC, memory_id
+    `).all(...parameters).map(memoryFromRow)
+  }
+
+  searchFts(memoryIds: readonly string[], query: string): ReadonlyMap<string, number> {
+    if (memoryIds.length === 0) return new Map()
+    const ftsQuery = toFtsQuery(query)
+    if (ftsQuery === '') return new Map()
+    const placeholders = memoryIds.map(() => '?').join(', ')
+    const rows = this.#database.prepare(`
+      SELECT memory_id, bm25(memory_fts) AS rank
+      FROM memory_fts
+      WHERE memory_fts MATCH ? AND memory_id IN (${placeholders})
+      ORDER BY rank, rowid
+    `).all(ftsQuery, ...memoryIds)
+    return new Map(rows.map((row, index) => [
+      requiredString(row.memory_id, 'memory_id'),
+      1 / (index + 1),
+    ]))
+  }
+
+  recordAccess(memoryIds: readonly string[], accessedAt: string = this.#timestamp()): void {
+    if (memoryIds.length === 0) return
+    this.#transaction(() => {
+      const update = this.#database.prepare(`
+        UPDATE memories
+        SET last_accessed_at = ?, access_count = access_count + 1
+        WHERE memory_id = ? AND status = 'active'
+      `)
+      for (const memoryId of new Set(memoryIds)) update.run(accessedAt, memoryId)
+    })
+  }
+
+  listActiveEpisodes(course: string): readonly StudentMemory[] {
+    return this.#database.prepare(`
+      ${memorySelect()}
+      WHERE status = 'active' AND kind = 'learning_episode' AND course = ?
+      ORDER BY created_at, memory_id
+    `).all(course).map(memoryFromRow)
+  }
+
+  linkEpisodeConsolidation(episodeId: string, memoryId: string): void {
+    const episode = requireMemory(this.get(episodeId), episodeId)
+    const higherMemory = requireMemory(this.get(memoryId), memoryId)
+    if (episode.kind !== 'learning_episode') throw new Error('Consolidation source must be a learning episode')
+    if (higherMemory.kind === 'learning_episode') throw new Error('Consolidation target must be a higher-level memory')
+    this.#database.prepare(`
+      INSERT OR IGNORE INTO memory_episode_consolidations (episode_id, memory_id, created_at)
+      VALUES (?, ?, ?)
+    `).run(episodeId, memoryId, this.#timestamp())
+  }
+
+  isEpisodeConsolidated(episodeId: string): boolean {
+    return this.#database.prepare(`
+      SELECT 1 FROM memory_episode_consolidations WHERE episode_id = ? LIMIT 1
+    `).get(episodeId) !== undefined
   }
 
   getEmbedding(memoryId: string): MemoryEmbedding | undefined {
@@ -222,6 +318,7 @@ export class MemoryStore {
         UPDATE memories SET status = ?, updated_at = ? WHERE memory_id = ?
       `).run(status, timestamp, memoryId)
       this.#database.prepare('DELETE FROM memory_embeddings WHERE memory_id = ?').run(memoryId)
+      this.#deleteFts(memoryId)
       this.#writeEvent(memoryId, operation, timestamp)
     })
     return { operation, memory: requireMemory(this.get(memoryId), memoryId) }
@@ -260,6 +357,17 @@ export class MemoryStore {
       INSERT INTO memory_events (event_id, memory_id, operation, timestamp)
       VALUES (?, ?, ?, ?)
     `).run(this.#createId(), memoryId, operation, timestamp)
+  }
+
+  #upsertFts(memoryId: string, content: string): void {
+    this.#deleteFts(memoryId)
+    this.#database.prepare(`
+      INSERT INTO memory_fts (memory_id, content) VALUES (?, ?)
+    `).run(memoryId, content)
+  }
+
+  #deleteFts(memoryId: string): void {
+    this.#database.prepare('DELETE FROM memory_fts WHERE memory_id = ?').run(memoryId)
   }
 
   #transaction<T>(callback: () => T): T {
@@ -422,4 +530,12 @@ function nullableString(value: unknown, field: string): string | null {
 function requiredNumber(value: unknown, field: string): number {
   if (typeof value !== 'number') throw new Error(`Invalid ${field} in memory database`)
   return value
+}
+
+function toFtsQuery(query: string): string {
+  return query
+    .normalize('NFKC')
+    .match(/[\p{Letter}\p{Number}]+/gu)
+    ?.map((token) => `"${token.replaceAll('"', '""')}"`)
+    .join(' OR ') ?? ''
 }

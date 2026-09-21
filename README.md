@@ -27,6 +27,8 @@ The normalization foundation additionally provides:
 
 The current generated Manifest contains 344 resources and remains at `resources/resources.json` until the Resource Catalog replaces the JSON snapshot.
 
+The long-term Memory capability now provides canonical current-state resolution, append-oriented learning episodes, SQLite FTS plus independent BGE-M3 embeddings, explainable scoped hybrid recall, source-priority conflict handling, and bounded per-course Episode lifecycle management. DeepSeek Flash extraction and BGE-M3 have concrete adapters; real model smoke is intentionally deferred to the stabilization round.
+
 ## Repository structure
 
 ```text
@@ -83,6 +85,8 @@ pnpm smoke:lightrag
 The CLI loads the repository-root `.env` automatically. The file is ignored by Git; do not commit the key.
 
 The Python environment is local to `services/knowledge-service/.venv` and is not committed. Docling is pinned in `services/knowledge-service/uv.lock`; on macOS the project uses its native OCR backend, while other platforms use RapidOCR. The LightRAG bridge uses the versioned JSON stdin/stdout contract in `services/knowledge-service/contracts/lightrag-worker.v1.schema.json`. Normalized Markdown is intended for inspection and LightRAG ingestion, and the adjacent JSON files retain complete metadata and locators. Generated output and state remain untracked.
+
+The Memory BGE-M3 adapter reuses this pinned local Python environment for model dependencies, but stores vectors in `memory_embeddings`; it does not write to or query the LightRAG index.
 
 LightRAG index state and long-term Memory share `data/runtime/monash-study-agent.sqlite`. The small `runtime-database` package owns the SQLite connection and ordered migrations; Knowledge and Memory services remain responsible for their own behavior. Existing state is migrated in place and the database is not recreated during normal upgrades.
 
