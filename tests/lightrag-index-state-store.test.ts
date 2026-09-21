@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { DatabaseSync } from 'node:sqlite'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -30,6 +31,16 @@ test('creates and persists the LightRAG index state schema', async (context) => 
   store.delete(first.documentId)
   assert.equal(store.get(first.documentId), undefined)
   store.close()
+
+  const database = new DatabaseSync(databasePath, { readOnly: true })
+  assert.deepEqual(database.prepare('SELECT version, name FROM schema_migrations').all().map((row) => ({
+    version: row.version,
+    name: row.name,
+  })), [
+    { version: 1, name: 'create-lightrag-index-state' },
+    { version: 2, name: 'create-knowledge-sync-journal' },
+  ])
+  database.close()
 
   const reopened = new LightRAGIndexStateStore({ databasePath })
   assert.deepEqual(reopened.get(unclassified.documentId), unclassified)

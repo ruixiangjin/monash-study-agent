@@ -1,9 +1,6 @@
 import { Service, type Context } from '@deepseek-ai/cordis'
 
-import {
-  LocalKnowledgeService,
-  type LocalKnowledgeConfig,
-} from '@monash-study/knowledge-service'
+import { createStudyRuntime, type StudyRuntime } from '@monash-study/study-controller'
 
 declare module '@deepseek-ai/cordis' {
   interface Context {
@@ -12,22 +9,26 @@ declare module '@deepseek-ai/cordis' {
 }
 
 /** Cordis configuration supplied by a DSH profile or bundle patch. */
-export interface Config extends LocalKnowledgeConfig {}
+export interface Config {
+  readonly runtimeConfigPath?: string
+}
 
 /** DSH-facing service wrapper; domain code remains independent of Cordis. */
 export class MonashStudyKnowledgeService extends Service {
-  readonly local: LocalKnowledgeService
+  readonly runtime: StudyRuntime
 
   constructor(ctx: Context, config: Config) {
     super(ctx, 'monashStudyKnowledge')
-    this.local = new LocalKnowledgeService(config)
+    this.runtime = createStudyRuntime(
+      config.runtimeConfigPath === undefined ? {} : { configPath: config.runtimeConfigPath },
+    )
   }
 }
 
 /** Cordis plugin name shown in DSH diagnostics. */
 export const name = 'monash-study-agent-dsh-integration'
 
-/** Register the phase-one local knowledge service with DSH. */
+/** Register the application runtime boundary with DSH. */
 export function apply(ctx: Context, config: Config): void {
   ctx.plugin(MonashStudyKnowledgeService, config)
 }

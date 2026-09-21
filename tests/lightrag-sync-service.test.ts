@@ -177,6 +177,25 @@ test('preserves or removes state according to course batch failure stage', async
   assert.equal(store.get('document-remove-fail')?.indexedAt, indexedAt)
 })
 
+test('leaves a worker crash incomplete and replays the course on the next sync', async (context) => {
+  const document = normalizedDocument({ documentId: 'document-crash', resourceId: 'resource-crash' })
+  const { service, client, store } = await fixture(context, [document])
+  client.batchError = new Error('simulated worker crash')
+
+  await assert.rejects(service.syncCourse('FIT2109'), /simulated worker crash/)
+  assert.equal(store.listIncompleteRuns('FIT2109').length, 1)
+  assert.equal(store.get(document.documentId), undefined)
+
+  client.batchError = undefined
+  const result = await service.syncCourse('FIT2109')
+
+  assert.equal(result.indexed, 1)
+  assert.equal(result.unchanged, 0)
+  assert.equal(result.runStatus, 'completed')
+  assert.equal(store.listIncompleteRuns('FIT2109').length, 0)
+  assert.equal(store.get(document.documentId)?.normalizedHash, document.normalizedHash)
+})
+
 async function fixture(
   context: TestContext,
   document: NormalizedDocument | readonly NormalizedDocument[],
@@ -239,6 +258,7 @@ class FakeClient {
   readonly deleted: Array<{ readonly documentId: string; readonly course: string | null }> = []
   readonly batches: Array<{ readonly course: string; readonly operations: readonly LightRAGCourseBatchOperation[] }> = []
   ingestError: Error | undefined
+  batchError: Error | undefined
   batchResults: readonly LightRAGCourseBatchOperationResult[] | undefined
 
   async ingestDocument(document: NormalizedDocument): Promise<LightRAGIngestionResult> {
@@ -271,6 +291,7 @@ class FakeClient {
     operations: readonly LightRAGCourseBatchOperation[],
   ): Promise<LightRAGCourseBatchResult> {
     this.batches.push({ course, operations })
+    if (this.batchError !== undefined) throw this.batchError
     return {
       course,
       workingDir: `/tmp/lightrag/${course}`,

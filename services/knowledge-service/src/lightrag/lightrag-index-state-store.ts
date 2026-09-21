@@ -1,13 +1,47 @@
-import { mkdirSync } from 'node:fs'
+import { randomUUID } from 'node:crypto'
 import { DatabaseSync } from 'node:sqlite'
-import { dirname, resolve } from 'node:path'
+import { resolve } from 'node:path'
 
 import type { LightRAGIndexState } from './lightrag-index-state.js'
+import { openLightRAGDatabase } from './lightrag-database.js'
 import { loadRuntimeConfig } from '../runtime/runtime-config.js'
 
 export interface LightRAGIndexStateStoreOptions {
   readonly databasePath?: string
   readonly configPath?: string
+}
+
+export type LightRAGSyncRunStatus = 'running' | 'incomplete' | 'failed' | 'completed' | 'recovered'
+export type LightRAGSyncOperation = 'index' | 'update' | 'remove'
+export type LightRAGSyncOperationStatus = 'planned' | 'succeeded' | 'failed' | 'incomplete'
+
+export interface LightRAGSyncRun {
+  readonly runId: string
+  readonly course: string
+  readonly status: LightRAGSyncRunStatus
+  readonly startedAt: string
+  readonly finishedAt: string | null
+  readonly error: string | null
+}
+
+export interface LightRAGSyncJournalOperation {
+  readonly operationId: number
+  readonly runId: string
+  readonly documentId: string
+  readonly operation: LightRAGSyncOperation
+  readonly status: LightRAGSyncOperationStatus
+  readonly error: string | null
+  readonly finishedAt: string | null
+}
+
+export interface LightRAGSyncJournalInput {
+  readonly documentId: string
+  readonly operation: LightRAGSyncOperation
+}
+
+export interface LightRAGSyncJournal {
+  readonly run: LightRAGSyncRun
+  readonly operations: readonly LightRAGSyncJournalOperation[]
 }
 
 /** Persists successful LightRAG document indexes in the local runtime database. */
@@ -19,22 +53,7 @@ export class LightRAGIndexStateStore {
     const databasePath = resolve(
       options.databasePath ?? runtimeConfig.lightrag.sqlitePath,
     )
-    mkdirSync(dirname(databasePath), { recursive: true })
-    this.#database = new DatabaseSync(databasePath)
-    this.#database.exec(`
-      CREATE TABLE IF NOT EXISTS lightrag_index_state (
-          document_id TEXT PRIMARY KEY,
-          resource_id TEXT NOT NULL,
-          course TEXT,
-          source_hash TEXT NOT NULL,
-          normalized_hash TEXT NOT NULL,
-          normalization_version TEXT NOT NULL,
-          source_path TEXT NOT NULL,
-          indexed_at TEXT NOT NULL
-      );
-      CREATE INDEX IF NOT EXISTS idx_lightrag_index_course
-      ON lightrag_index_state(course);
-    `)
+    this.#database = openLightRAGDatabase(databasePath)
   }
 
   get(documentId: string): LightRAGIndexState | undefined {
@@ -105,6 +124,112 @@ export class LightRAGIndexStateStore {
   close(): void {
     if (this.#database.isOpen) this.#database.close()
   }
+
+  transaction<T>(callback: () => T): T {
+    this.#database.exec('BEGIN IMMEDIATE')
+    try {
+      const result = callback()
+      this.#database.exec('COMMIT')
+      return result
+    } catch (error) {
+      try {
+        this.#database.exec('ROLLBACK')
+      } catch {
+        // Preserve the original transaction error.
+      }
+      throw error
+    }
+  }
+
+  beginCourseRun(course: string, operations: readonly LightRAGSyncJournalInput[]): LightRAGSyncJournal {
+    const run: LightRAGSyncRun = {
+      runId: randomUUID(),
+      course,
+      status: 'running',
+      startedAt: new Date().toISOString(),
+      finishedAt: null,
+      error: null,
+    }
+    const journalOperations: LightRAGSyncJournalOperation[] = []
+    this.transaction(() => {
+      this.#database
+        .prepare(`
+          INSERT INTO knowledge_sync_runs (run_id, course, status, started_at, finished_at, error)
+          VALUES (?, ?, ?, ?, ?, ?)
+        `)
+        .run(run.runId, run.course, run.status, run.startedAt, run.finishedAt, run.error)
+      const insert = this.#database.prepare(`
+        INSERT INTO knowledge_sync_operations
+          (run_id, document_id, operation, status, error, finished_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `)
+      for (const operation of operations) {
+        const result = insert.run(run.runId, operation.documentId, operation.operation, 'planned', null, null)
+        journalOperations.push({
+          operationId: Number(result.lastInsertRowid),
+          runId: run.runId,
+          documentId: operation.documentId,
+          operation: operation.operation,
+          status: 'planned',
+          error: null,
+          finishedAt: null,
+        })
+      }
+    })
+    return { run, operations: journalOperations }
+  }
+
+  markOperation(
+    operationId: number,
+    status: LightRAGSyncOperationStatus,
+    error: string | null = null,
+  ): void {
+    this.#database
+      .prepare(`
+        UPDATE knowledge_sync_operations
+        SET status = ?, error = ?, finished_at = ?
+        WHERE operation_id = ?
+      `)
+      .run(status, error, status === 'planned' ? null : new Date().toISOString(), operationId)
+  }
+
+  markRun(runId: string, status: LightRAGSyncRunStatus, error: string | null = null): void {
+    this.#database
+      .prepare(`
+        UPDATE knowledge_sync_runs
+        SET status = ?, error = ?, finished_at = ?
+        WHERE run_id = ?
+      `)
+      .run(status, error, status === 'running' ? null : new Date().toISOString(), runId)
+  }
+
+  markPriorRunsRecovered(course: string, currentRunId: string): void {
+    this.#database
+      .prepare(`
+        UPDATE knowledge_sync_runs
+        SET status = 'recovered', finished_at = COALESCE(finished_at, ?)
+        WHERE course = ?
+          AND run_id <> ?
+          AND status IN ('running', 'incomplete', 'failed')
+      `)
+      .run(new Date().toISOString(), course, currentRunId)
+  }
+
+  listIncompleteRuns(course: string): readonly LightRAGSyncRun[] {
+    return this.#database
+      .prepare(`
+        SELECT run_id, course, status, started_at, finished_at, error
+        FROM knowledge_sync_runs
+        WHERE course = ? AND status NOT IN ('completed', 'recovered')
+        ORDER BY started_at
+      `)
+      .all(course)
+      .map(syncRunFromRow)
+  }
+
+  hasIncompleteCourseRun(course: string): boolean {
+    return this.listIncompleteRuns(course).length > 0
+  }
 }
 
 function stateFromRow(row: Record<string, unknown>): LightRAGIndexState {
@@ -136,4 +261,31 @@ function isString(value: unknown): value is string {
 
 function isNullableString(value: unknown): value is string | null {
   return value === null || typeof value === 'string'
+}
+
+function syncRunFromRow(row: Record<string, unknown>): LightRAGSyncRun {
+  if (!isString(row.run_id)
+    || !isString(row.course)
+    || !isSyncRunStatus(row.status)
+    || !isString(row.started_at)
+    || !isNullableString(row.finished_at)
+    || !isNullableString(row.error)) {
+    throw new Error('Invalid row in knowledge_sync_runs')
+  }
+  return {
+    runId: row.run_id,
+    course: row.course,
+    status: row.status,
+    startedAt: row.started_at,
+    finishedAt: row.finished_at,
+    error: row.error,
+  }
+}
+
+function isSyncRunStatus(value: unknown): value is LightRAGSyncRunStatus {
+  return value === 'running'
+    || value === 'incomplete'
+    || value === 'failed'
+    || value === 'completed'
+    || value === 'recovered'
 }

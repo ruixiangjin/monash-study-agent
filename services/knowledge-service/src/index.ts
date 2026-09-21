@@ -1,6 +1,6 @@
-export * from './lightrag/lightrag-adapter.js'
 export * from './lightrag/lightrag-index-state.js'
 export * from './lightrag/lightrag-index-state-store.js'
+export * from './lightrag/lightrag-database.js'
 export * from './lightrag/lightrag-knowledge-service.js'
 export * from './lightrag/lightrag-sync-service.js'
 export * from './lightrag/lightrag-worker-client.js'
