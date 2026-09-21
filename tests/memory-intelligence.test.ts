@@ -73,6 +73,64 @@ test('extracts and validates structured DeepSeek Flash candidates without a real
   }])
 })
 
+test('accepts the model summary alias and fills only safe extraction defaults', async () => {
+  const extractor = new DeepSeekFlashMemoryCandidateExtractor({
+    async complete() {
+      return JSON.stringify({ candidates: [{
+        operation: 'ADD',
+        kind: 'preference',
+        scope: 'global',
+        memoryKey: 'preference:bilingual_explanation',
+        summary: 'Prefers bilingual explanations.',
+        sourceType: 'user_explicit',
+        confidence: 0.95,
+      }] })
+    },
+  })
+  const [candidate] = await extractor.extract({
+    userMessage: '我喜欢中英双语解释。',
+    assistantResponse: '好的。',
+    sourceSessionId: 'session-summary-alias',
+  })
+  assert.equal(candidate?.memoryKey, 'preference:explanation-language')
+  assert.equal(candidate?.content, 'Prefers bilingual explanations.')
+  assert.equal(candidate?.importance, 0.7)
+})
+
+test('normalizes model-added topic details away from course scope', async () => {
+  const extractor = new DeepSeekFlashMemoryCandidateExtractor({
+    async complete() {
+      return JSON.stringify({ candidates: [{
+        operation: 'ADD', kind: 'weakness', scope: 'course', course: 'FIT2014', topic: 'pumping-lemma',
+        memoryKey: 'weakness:FIT2014:pumping-lemma', summary: 'Weak proof structure.',
+        importance: 0.8, confidence: 0.9, sourceType: 'user_explicit',
+      }] })
+    },
+  })
+  const [candidate] = await extractor.extract({
+    userMessage: 'Pumping Lemma 不好。', assistantResponse: '好的。', sourceSessionId: 'session-scope', course: 'FIT2014',
+  })
+  assert.equal(candidate?.scope, 'course')
+  assert.equal(candidate?.course, 'FIT2014')
+  assert.equal(candidate?.topic, null)
+})
+
+test('derives a stable course key when the model omits memoryKey', async () => {
+  const extractor = new DeepSeekFlashMemoryCandidateExtractor({
+    async complete() {
+      return JSON.stringify({ candidates: [{
+        operation: 'ADD', kind: 'weakness', scope: 'course',
+        content: 'Struggles with the proof structure of the Pumping Lemma.',
+        sourceType: 'user_explicit', confidence: 0.9,
+      }] })
+    },
+  })
+  const [candidate] = await extractor.extract({
+    userMessage: 'Pumping Lemma 不好。', assistantResponse: '好的。', sourceSessionId: 'session-key-fallback', course: 'FIT2014',
+  })
+  assert.equal(candidate?.memoryKey, 'weakness:FIT2014:pumping-lemma')
+})
+
 test('resolver protects higher-priority state and updates canonical memory in place', async (context) => {
   const runtime = await setup(context)
   const first = await runtime.lifecycle.apply(runtime.resolver.resolve(preferenceCandidate('bilingual')))

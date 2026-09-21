@@ -27,6 +27,9 @@ export function canonicalizeMemoryKey(memoryKey: string): string {
   if (kind === undefined || parts.length === 0) {
     throw new Error(`Invalid canonical memory key: ${memoryKey}`)
   }
+  if (kind === 'preference' && isExplanationLanguageAlias(parts)) {
+    return createCanonicalMemoryKey(kind, 'explanation-language')
+  }
   return createCanonicalMemoryKey(kind, ...parts)
 }
 
@@ -47,4 +50,12 @@ function normalizeKeyPart(value: string): string {
     .replace(/^-+|-+$/g, '')
   if (normalized.length === 0) throw new Error('Canonical memory key parts cannot be empty')
   return normalized
+}
+
+function isExplanationLanguageAlias(parts: readonly string[]): boolean {
+  const normalized = parts.join('-').toLowerCase()
+  return normalized.includes('explanation')
+    || normalized.includes('language')
+    || normalized.includes('bilingual')
+    || normalized.includes('chinese-only')
 }

@@ -20,6 +20,8 @@ test('builds deterministic canonical memory keys', () => {
     canonicalizeMemoryKey(' Progress : fit2014 : Pumping Lemma '),
     'progress:FIT2014:pumping-lemma',
   )
+  assert.equal(canonicalizeMemoryKey('preference:bilingual_explanation'), 'preference:explanation-language')
+  assert.equal(canonicalizeMemoryKey('preference:chinese-only-explanations'), 'preference:explanation-language')
   assert.equal(kindForMemoryKey('strategy:git:visual-first'), 'study_strategy')
   assert.throws(() => canonicalizeMemoryKey('episode:FIT2014:first'), /Invalid canonical memory key/)
 })

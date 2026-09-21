@@ -6,7 +6,7 @@ import type {
 } from '@monash-study/shared-types'
 
 import type { MemoryCompletionProvider } from './deepseek-memory-provider.js'
-import { canonicalizeMemoryKey } from './memory-key.js'
+import { canonicalizeMemoryKey, createCanonicalMemoryKey } from './memory-key.js'
 import type {
   MemoryCandidate,
   MemoryCandidateExtractor,
@@ -20,6 +20,7 @@ Allowed scopes: global, course, topic.
 Allowed operations: ADD, UPDATE, RESOLVE, NOOP, ARCHIVE, DELETE.
 Allowed sourceType: user_explicit, system_observed, derived, agent_inferred.
 Use canonical keys with prefixes preference:, progress:, weakness:, strategy:.
+Use study_strategy for a course/topic-specific method for learning a subject; reserve preference for global user preferences such as language or explanation style.
 Learning episodes must not have memoryKey. Never invent facts. Prefer no candidate over weak inference.
 DELETE is only for an explicit user request to forget. RESOLVE requires clear evidence that a weakness or progress state ended.`
 
@@ -51,36 +52,83 @@ export class DeepSeekFlashMemoryCandidateExtractor implements MemoryCandidateExt
     if (!isRecord(parsed) || !Array.isArray(parsed.candidates)) {
       throw new Error('DeepSeek Memory candidate response must contain candidates[]')
     }
-    return parsed.candidates.map((candidate, index) => parseCandidate(
-      candidate,
-      observation.sourceSessionId,
-      index,
-    ))
+    return parsed.candidates.map((candidate, index) => parseCandidate(candidate, observation, index))
   }
 }
 
-function parseCandidate(value: unknown, sourceSessionId: string, index: number): MemoryCandidate {
+function parseCandidate(value: unknown, observation: MemoryObservation, index: number): MemoryCandidate {
   if (!isRecord(value) || !isOperation(value.operation)) {
     throw new Error(`Invalid Memory candidate at index ${index}`)
   }
   if (value.operation === 'NOOP') return { operation: 'NOOP' }
+  const rawMemoryKey = typeof value.memoryKey === 'string'
+    ? canonicalizeMemoryKey(value.memoryKey)
+    : undefined
   const candidate: MemoryCandidate = {
     operation: value.operation,
     ...(isKind(value.kind) ? { kind: value.kind } : {}),
     ...(isScope(value.scope) ? { scope: value.scope } : {}),
-    ...(isNullableString(value.course) ? { course: value.course } : {}),
-    ...(isNullableString(value.topic) ? { topic: value.topic } : {}),
-    ...(typeof value.memoryKey === 'string'
-      ? { memoryKey: canonicalizeMemoryKey(value.memoryKey) }
-      : {}),
+    ...(isNullableString(value.course)
+      ? { course: value.course }
+      : observation.course === undefined ? {} : { course: observation.course }),
+    ...(isNullableString(value.topic)
+      ? { topic: value.topic }
+      : observation.topic === undefined ? {} : { topic: observation.topic }),
+    ...(rawMemoryKey === undefined ? {} : { memoryKey: rawMemoryKey }),
     ...(typeof value.targetMemoryId === 'string' ? { targetMemoryId: value.targetMemoryId } : {}),
-    ...(typeof value.content === 'string' ? { content: value.content.trim() } : {}),
-    ...(isUnitNumber(value.importance) ? { importance: value.importance } : {}),
-    ...(isUnitNumber(value.confidence) ? { confidence: value.confidence } : {}),
+    ...(typeof value.content === 'string'
+      ? { content: value.content.trim() }
+      : typeof value.summary === 'string' ? { content: value.summary.trim() } : {}),
+    ...(isUnitNumber(value.importance) ? { importance: value.importance } : { importance: 0.7 }),
+    ...(isUnitNumber(value.confidence) ? { confidence: value.confidence } : { confidence: 0.7 }),
     ...(isSourceType(value.sourceType) ? { sourceType: value.sourceType } : {}),
-    sourceSessionId,
+    sourceSessionId: observation.sourceSessionId,
   }
-  validateCandidate(candidate, index)
+  const normalized = normalizeScopeFields(withDerivedMemoryKey(candidate))
+  validateCandidate(normalized, index)
+  return normalized
+}
+
+function withDerivedMemoryKey(candidate: MemoryCandidate): MemoryCandidate {
+  if (candidate.memoryKey !== undefined
+    || candidate.kind === undefined
+    || candidate.kind === 'learning_episode'
+    || (candidate.operation !== 'ADD' && candidate.operation !== 'UPDATE')) return candidate
+  const identity = derivedIdentity(candidate)
+  if (identity === undefined) return candidate
+  return {
+    ...candidate,
+    memoryKey: createCanonicalMemoryKey(candidate.kind, ...identity),
+  }
+}
+
+function derivedIdentity(candidate: MemoryCandidate): readonly string[] | undefined {
+  const text = candidate.content?.toLowerCase() ?? ''
+  if (candidate.kind === 'preference' && candidate.scope === 'global') {
+    if (text.includes('bilingual') || text.includes('chinese') || text.includes('language') || text.includes('解释')) {
+      return ['explanation-language']
+    }
+  }
+  if ((candidate.kind === 'weakness' || candidate.kind === 'study_progress')
+    && candidate.scope === 'course' && candidate.course !== undefined && candidate.course !== null) {
+    if (text.includes('pumping lemma')) return [candidate.course, 'pumping-lemma']
+    if (text.includes('git')) return [candidate.course, 'git']
+    const tokens = text.match(/[\p{Letter}\p{Number}]+/gu)
+    if (tokens !== null && tokens.length > 0) return [candidate.course, tokens.slice(0, 3).join('-')]
+  }
+  if (candidate.kind === 'study_strategy' && candidate.scope === 'topic' && candidate.topic !== undefined && candidate.topic !== null) {
+    if (text.includes('graph') || text.includes('visual') || text.includes('画')) return [candidate.topic, 'visual-first']
+    return [candidate.topic, 'default']
+  }
+  return undefined
+}
+
+function normalizeScopeFields(candidate: MemoryCandidate): MemoryCandidate {
+  if (candidate.scope === 'global'
+    && ('course' in candidate || 'topic' in candidate)) {
+    return { ...candidate, course: null, topic: null }
+  }
+  if (candidate.scope === 'course' && 'topic' in candidate) return { ...candidate, topic: null }
   return candidate
 }
 
