@@ -403,13 +403,19 @@ Agent
 
 从而让 Agent Prompt 与底层具体实现保持分离。
 
-正常的对话后 Memory 提取与更新统一通过：
+系统在 completed turn 后通过：
 
 ```text
 MemoryService.observe()
 ```
 
-进入 Memory Resolver；`manage_memory` 负责明确的 Memory 管理操作。
+自动发起 Post-turn Observation。Main Agent 在对话过程中通过：
+
+```text
+manage_memory
+```
+
+主动发起 Agent-controlled Memory Formation。这两条路径共享统一的 Memory Service / Resolver，职责按触发来源与执行时机划分；二者均适用完整的 Memory lifecycle operation。
 
 ------
 
@@ -585,6 +591,16 @@ topic
 
 # 11. Memory Workflow
 
+Memory Write 使用 **Hybrid Memory Formation**：
+
+```text
+Background / Post-turn Observation
++
+Agent-controlled manage_memory
+```
+
+两条 formation path 共享同一套 Memory Service / Resolver 与 persistence pipeline。它们的职责按触发来源与 timing 划分，每条路径均可形成完整的 Memory operation。
+
 一次普通请求：
 
 ```text
@@ -607,20 +623,26 @@ DeepSeek
 Answer
 ```
 
-回答完成以后：
+两条 Memory Formation 路径：
 
 ```text
-Conversation Result
-        ↓
-MemoryService.observe()
-        ↓
-Memory Candidate Extraction
-        ↓
-Memory Resolution
-        ↓
-ADD / UPDATE / RESOLVE / NOOP
-        ↓
-Memory Store
+Completed Turn                         Main Study Agent
+      │                                      │
+      ▼                                      ▼
+MemoryService.observe()                 manage_memory
+      │                                      │
+      └─────────────────┬─────────────────┘
+                       ▼
+                 Memory Candidate
+                       │
+                       ▼
+                 Memory Resolution
+                       │
+                       ▼
+       ADD / UPDATE / RESOLVE / ARCHIVE / DELETE / NOOP
+                       │
+                       ▼
+                  Memory Store
 ```
 
 Memory Recall 采用：
@@ -1553,7 +1575,7 @@ DeepSeek
 ↓
 Answer
 ↓
-Memory Observe
+Post-turn Observation
 ↓
 Candidate Extraction
 ↓
@@ -1561,6 +1583,18 @@ Memory Resolution
 ↓
 Memory Update
 ```
+
+对话过程中同时存在 Agent-controlled 路径：
+
+```text
+Main Study Agent
+↓
+manage_memory
+↓
+Memory Service
+```
+
+`manage_memory` 与 Post-turn Observation 在 Memory Service 内共享统一的 Resolution 与 Lifecycle 流程。
 
 ------
 
