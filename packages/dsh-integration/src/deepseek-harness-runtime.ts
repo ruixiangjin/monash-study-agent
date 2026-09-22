@@ -7,6 +7,7 @@ import { DeepSeekHarness } from '@deepseek-ai/dsh-sdk-client'
 import type { DeepSeekHarnessOptions } from '@deepseek-ai/dsh-sdk-client'
 import {
   MAIN_STUDY_AGENT_PROMPT_VERSION,
+  MAIN_STUDY_AGENT_NO_TOOLS_SYSTEM_PROMPT,
   MAIN_STUDY_AGENT_SYSTEM_PROMPT,
   NoopAgentEventSink,
   renderMainStudyAgentPrompt,
@@ -14,11 +15,13 @@ import {
   type AgentEvent,
   type AgentEventSink,
   type ModelProfile,
+  type StudyAgentToolServices,
   type StudyAgentRuntime,
   type StudyTurnInput,
   type StudyTurnOptions,
   type StudyTurnResult,
 } from '@monash-study/study-core'
+import { StudyToolBridge, type StudyToolRunSnapshot } from './study-tool-bridge.js'
 
 export interface DeepSeekHarnessSession {
   run(input: string): Promise<DeepSeekHarnessRunResult>
@@ -46,6 +49,8 @@ export interface DeepSeekHarnessRuntimeOptions {
   readonly promptPatchPath?: string
   /** Logical profile used when a direct runtime call omits StudyTurnOptions.modelProfile. */
   readonly defaultModelProfile?: ModelProfile
+  /** Product capabilities exposed through the real Harness tool boundary. */
+  readonly toolServices?: StudyAgentToolServices
 }
 
 const DSH_MODELS: Readonly<Record<ModelProfile, { readonly provider: string; readonly model: string }>> = {
@@ -60,7 +65,9 @@ export class DeepSeekHarnessRuntime implements StudyAgentRuntime {
   readonly #harnessOptions: DeepSeekHarnessOptions
   readonly #promptPatchPath: string
   readonly #defaultModelProfile: ModelProfile
+  readonly #systemPrompt: string
   readonly #harnesses = new Map<ModelProfile, DeepSeekHarnessDriver>()
+  readonly #toolBridge: StudyToolBridge | undefined
 
   constructor(options: DeepSeekHarnessRuntimeOptions = {}) {
     loadProjectEnvironment()
@@ -69,6 +76,10 @@ export class DeepSeekHarnessRuntime implements StudyAgentRuntime {
     this.#defaultModelProfile = options.defaultModelProfile ?? 'fast'
     this.#promptPatchPath = options.promptPatchPath ?? resolve(process.cwd(), 'config/main-agent.cordis.patch.yml')
     this.#harnessOptions = options.harnessOptions ?? {}
+    this.#toolBridge = options.toolServices === undefined ? undefined : new StudyToolBridge({ services: options.toolServices })
+    this.#systemPrompt = options.toolServices === undefined
+      ? MAIN_STUDY_AGENT_NO_TOOLS_SYSTEM_PROMPT
+      : MAIN_STUDY_AGENT_SYSTEM_PROMPT
   }
 
   async runTurn(input: StudyTurnInput, options: StudyTurnOptions = {}): Promise<StudyTurnResult> {
@@ -82,7 +93,7 @@ export class DeepSeekHarnessRuntime implements StudyAgentRuntime {
       throw new StudyRuntimeError('ABORTED', 'The Study Agent turn was aborted before Harness execution.')
     }
 
-    const prompt = renderMainStudyAgentPrompt(input)
+    const prompt = renderMainStudyAgentPrompt(input, { toolsEnabled: this.#toolBridge !== undefined })
     const sessionId = input.conversation?.sessionId
     if (input.conversation !== undefined && input.conversation.conversationId !== sessionId) {
       throw new StudyRuntimeError(
@@ -91,9 +102,11 @@ export class DeepSeekHarnessRuntime implements StudyAgentRuntime {
       )
     }
 
+    let toolSnapshot: StudyToolRunSnapshot = { evidence: [], toolsUsed: [] }
+    this.#toolBridge?.begin(runId, input)
     await emit(eventSink, event(runId, 'model_started', modelProfile))
     try {
-      const harness = this.#getHarness(modelProfile)
+      const harness = await this.#getHarness(modelProfile)
       const result = await harness.session(sessionId).run(prompt.userPrompt)
       if (result.finalResponse.trim().length === 0) {
         throw new StudyRuntimeError('MODEL_ERROR', 'The Study Agent model returned an empty answer.')
@@ -109,6 +122,7 @@ export class DeepSeekHarnessRuntime implements StudyAgentRuntime {
       }
       await emit(eventSink, event(runId, 'model_completed', modelProfile, conversation.sessionId, conversation.conversationId, turnId))
       await emit(eventSink, event(runId, 'answer_completed', modelProfile, conversation.sessionId, conversation.conversationId, turnId))
+      toolSnapshot = this.#toolBridge?.snapshot(runId) ?? toolSnapshot
       return {
         runId,
         answer: result.finalResponse,
@@ -116,10 +130,14 @@ export class DeepSeekHarnessRuntime implements StudyAgentRuntime {
         turnId,
         modelProfile,
         promptVersion: MAIN_STUDY_AGENT_PROMPT_VERSION,
+        evidence: toolSnapshot.evidence,
+        toolsUsed: toolSnapshot.toolsUsed,
       }
     } catch (error) {
       if (error instanceof StudyRuntimeError) throw error
       throw new StudyRuntimeError('HARNESS_ERROR', 'DeepSeek Harness could not complete the Study Agent turn.', { cause: error })
+    } finally {
+      this.#toolBridge?.end(runId)
     }
   }
 
@@ -127,19 +145,24 @@ export class DeepSeekHarnessRuntime implements StudyAgentRuntime {
     const harnesses = new Set(this.#harnesses.values())
     if (this.#injectedHarness !== undefined) harnesses.add(this.#injectedHarness)
     await Promise.all([...harnesses].map((harness) => harness.close?.()))
+    await this.#toolBridge?.close()
     this.#harnesses.clear()
   }
 
-  #getHarness(profile: ModelProfile): DeepSeekHarnessDriver {
+  async #getHarness(profile: ModelProfile): Promise<DeepSeekHarnessDriver> {
     if (this.#injectedHarness !== undefined) return this.#injectedHarness
     const existing = this.#harnesses.get(profile)
     if (existing !== undefined) return existing
-    const created = this.#createHarness?.(profile) ?? this.#createDefaultHarness(profile)
+    const bridge = await this.#toolBridge?.start()
+    const created = this.#createHarness?.(profile) ?? this.#createDefaultHarness(profile, bridge)
     this.#harnesses.set(profile, created)
     return created
   }
 
-  #createDefaultHarness(profile: ModelProfile): DeepSeekHarnessDriver {
+  #createDefaultHarness(
+    profile: ModelProfile,
+    bridge: { readonly url: string; readonly token: string } | undefined,
+  ): DeepSeekHarnessDriver {
     const model = DSH_MODELS[profile]
     const configuredPatches = this.#harnessOptions.patches ?? []
     const patches = configuredPatches.includes(this.#promptPatchPath)
@@ -147,7 +170,11 @@ export class DeepSeekHarnessRuntime implements StudyAgentRuntime {
       : [...configuredPatches, this.#promptPatchPath]
     const env = {
       ...(this.#harnessOptions.env ?? process.env),
-      MONASH_STUDY_AGENT_SYSTEM_PROMPT: MAIN_STUDY_AGENT_SYSTEM_PROMPT,
+      MONASH_STUDY_AGENT_SYSTEM_PROMPT: this.#systemPrompt,
+      ...(bridge === undefined ? {} : {
+        MONASH_STUDY_AGENT_TOOL_BRIDGE_URL: bridge.url,
+        MONASH_STUDY_AGENT_TOOL_BRIDGE_TOKEN: bridge.token,
+      }),
     }
     return new DeepSeekHarness({
       ...this.#harnessOptions,

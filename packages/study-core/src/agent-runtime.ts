@@ -1,3 +1,4 @@
+import type { Evidence, ResourceText, StudentMemory } from '@monash-study/shared-types'
 import type { CourseContext } from './prompts/main-study-agent-prompt.js'
 
 /** The first stable Main Agent task understood by ModelPolicy. */
@@ -17,6 +18,67 @@ export interface StudyTurnInput {
   readonly query: string
   readonly courseContext?: CourseContext
   readonly conversation?: StudyConversationRef
+  readonly studentContext?: StudentContext
+}
+
+/** Safe, model-facing projection of one recalled Student Memory. */
+export interface StudentMemoryContext {
+  readonly memory: StudentMemory
+  readonly direct: boolean
+  readonly score: {
+    readonly semantic: number
+    readonly keyword: number
+    readonly importance: number
+    readonly confidence: number
+    readonly recency: number
+    readonly total: number
+  }
+}
+
+/** Context assembled before a Main Agent turn; raw service implementations stay outside core. */
+export interface StudentContext {
+  readonly memories: readonly StudentMemoryContext[]
+}
+
+/** Input accepted by the product-owned Student Context seam. */
+export interface StudentContextBuildInput {
+  readonly query: string
+  readonly courseContext?: CourseContext
+}
+
+/** Builds stable context without coupling StudyController to MemoryService. */
+export interface StudentContextBuilder {
+  build(input: StudentContextBuildInput): Promise<StudentContext>
+}
+
+/** Resource read capability exposed to the Main Agent tool bridge. */
+export interface StudyResourceReader {
+  readText(resourceId: string): Promise<ResourceText>
+}
+
+/** Memory recall capability exposed to the Main Agent tool bridge. */
+export interface StudyMemoryReader {
+  recall(input: {
+    readonly query: string
+    readonly course?: string
+    readonly topic?: string
+    readonly limit?: number
+    readonly globalLimit?: number
+  }): Promise<readonly StudentMemoryContext[]>
+}
+
+/** Product capabilities used by the three Round 2 read tools. */
+export interface StudyAgentToolServices {
+  readonly knowledgeService?: {
+    search(input: {
+      readonly query: string
+      readonly course?: string
+      readonly week?: number
+      readonly limit?: number
+    }): Promise<readonly Evidence[]>
+  }
+  readonly resourceReader?: StudyResourceReader
+  readonly memoryReader?: StudyMemoryReader
 }
 
 /** Minimal lifecycle events emitted by a Study Agent run. */
@@ -95,6 +157,8 @@ export interface StudyTurnResult {
   readonly turnId: string
   readonly modelProfile: ModelProfile
   readonly promptVersion: string
+  readonly evidence: readonly Evidence[]
+  readonly toolsUsed: readonly string[]
 }
 
 /** Runtime abstraction consumed by StudyController. */

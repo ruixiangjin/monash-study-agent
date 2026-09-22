@@ -6,3 +6,7 @@
     includeHarnessIdentity: false
     includeRuntimeContext: false
     personaPrefix: !!js process.env.MONASH_STUDY_AGENT_SYSTEM_PROMPT
+
+- insert:
+    - id: monash-study-agent-tools
+      name: './main-agent-tools.mjs'

@@ -9,6 +9,7 @@ import {
   type AgentEventSink,
   type ModelPolicy,
   type StudyAgentRuntime,
+  type StudentContextBuilder,
   type StudyTurnInput,
   type StudyTurnOptions,
   type StudyTurnResult,
@@ -31,12 +32,14 @@ export interface StudyControllerDependencies {
 export interface StudyControllerOptions {
   readonly eventSink?: AgentEventSink
   readonly runIdFactory?: () => string
+  readonly studentContextBuilder?: StudentContextBuilder
 }
 
 /** Thin product orchestration boundary over a provider-neutral StudyAgentRuntime. */
 export class StudyController {
   private readonly eventSink: AgentEventSink
   private readonly runIdFactory: () => string
+  private readonly studentContextBuilder: StudentContextBuilder | undefined
 
   constructor(
     private readonly runtime: StudyAgentRuntime,
@@ -45,6 +48,7 @@ export class StudyController {
   ) {
     this.eventSink = options.eventSink ?? new NoopAgentEventSink()
     this.runIdFactory = options.runIdFactory ?? randomUUID
+    this.studentContextBuilder = options.studentContextBuilder
   }
 
   async runTurn(input: StudyTurnInput, options: StudyTurnOptions = {}): Promise<StudyTurnResult> {
@@ -55,13 +59,27 @@ export class StudyController {
     try {
       const normalizedInput = validateStudyTurnInput(input)
       const modelProfile = this.modelPolicy.selectModel('main_agent')
-      const result = await this.runtime.runTurn(normalizedInput, {
+      const studentContext = normalizedInput.studentContext
+        ?? await this.studentContextBuilder?.build({
+          query: normalizedInput.query,
+          ...(normalizedInput.courseContext === undefined ? {} : { courseContext: normalizedInput.courseContext }),
+        })
+      const runtimeInput = studentContext === undefined
+        ? normalizedInput
+        : { ...normalizedInput, studentContext }
+      const result = await this.runtime.runTurn(runtimeInput, {
         ...options,
         runId,
         modelProfile,
         eventSink,
       })
-      const completed = { ...result, runId, modelProfile }
+      const completed = {
+        ...result,
+        runId,
+        modelProfile,
+        evidence: result.evidence ?? [],
+        toolsUsed: result.toolsUsed ?? [],
+      }
       await emit(eventSink, event(runId, 'run_completed', {
         modelProfile,
         sessionId: result.conversation.sessionId,

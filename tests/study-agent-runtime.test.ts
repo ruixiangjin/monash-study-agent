@@ -22,7 +22,7 @@ test('Main Study Agent prompt keeps version, course context, and query invariant
     query: 'Explain branches.',
     courseContext: { courseCode: 'FIT2109', week: 4, topic: 'Git' },
   })
-  assert.equal(MAIN_STUDY_AGENT_PROMPT_VERSION, 'main-study-agent-v1')
+  assert.equal(MAIN_STUDY_AGENT_PROMPT_VERSION, 'main-study-agent-v2')
   assert.match(rendered.systemPrompt, /Monash Study Agent/)
   assert.match(rendered.runtimeContext, /courseCode: FIT2109/)
   assert.match(rendered.runtimeContext, /week: 4/)
@@ -44,6 +44,8 @@ test('StudyController validates, selects a model, injects runId, and returns the
     turnId: '1',
     modelProfile: 'fast',
     promptVersion: MAIN_STUDY_AGENT_PROMPT_VERSION,
+    evidence: [],
+    toolsUsed: [],
   }
   const runtime: StudyAgentRuntime = {
     async runTurn(input, options) {
