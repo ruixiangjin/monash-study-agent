@@ -2,6 +2,8 @@
 
 Monash Study Agent is a complete, local-first learning Agent product for Monash course materials. It owns the study workflow, course knowledge, product configuration, connectors, and future study interface.
 
+Project documentation is indexed in [`docs/README.md`](docs/README.md). The implementation reference is [`docs/PROJECT_CODEBASE_REFERENCE.md`](docs/PROJECT_CODEBASE_REFERENCE.md); design intent is recorded separately in the linked V3.0 architecture and Memory documents.
+
 DeepSeek Harness (DSH) is the product's internal Agent Runtime. It supplies sessions, the Agent loop, model execution, tool calling, conversation, presets, and Web runtime. The Cordis plugin entry is therefore an internal Runtime Integration Layer rather than the identity of this repository.
 
 ## Current foundation
