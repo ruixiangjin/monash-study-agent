@@ -27,7 +27,9 @@ The normalization foundation additionally provides:
 
 The current generated Manifest contains 344 resources and remains at `resources/resources.json` until the Resource Catalog replaces the JSON snapshot.
 
-The long-term Memory capability now provides canonical current-state resolution, append-oriented learning episodes, SQLite FTS plus independent BGE-M3 embeddings, explainable scoped hybrid recall, source-priority conflict handling, and bounded per-course Episode lifecycle management. DeepSeek Flash extraction and BGE-M3 have concrete adapters; real model smoke is intentionally deferred to the stabilization round.
+The long-term Memory capability now provides canonical current-state resolution, append-oriented learning episodes, SQLite FTS plus independent BGE-M3 embeddings, explainable scoped hybrid recall, source-priority conflict handling, and bounded per-course Episode lifecycle management. DeepSeek Flash extraction and BGE-M3 have concrete adapters; Memory's separate real-model smoke remains intentionally deferred to the stabilization round.
+
+The first Main Agent Runtime round additionally provides a provider-neutral `StudyAgentRuntime` contract, a thin `StudyController`, versioned Main Study Agent prompting, logical model profiles, safe lifecycle events, stable runtime errors, and a real DeepSeek Harness SDK adapter with session continuity.
 
 ## Repository structure
 
@@ -67,6 +69,8 @@ pnpm normalize -- resource <resourceId>
 pnpm run typecheck
 pnpm run build
 pnpm test
+pnpm agent-smoke -- --course FIT2109 --query "Briefly explain what a Git branch is."
+pnpm agent-smoke -- --course FIT2109 --query "Briefly explain what a Git branch is." --continuity
 ```
 
 `config/sources.local.json` identifies the current machine's local course directories and is ignored by Git. Use `config/sources.example.json` as the portable template when configuring another machine. Scanning reads source files and downloader manifests without modifying the course libraries. Non-secret LightRAG runtime settings are shared through `config/runtime.json`; `.env` contains only `DEEPSEEK_API_KEY`.
@@ -92,7 +96,7 @@ LightRAG index state and long-term Memory share `data/runtime/monash-study-agent
 
 ## Runtime integration
 
-`packages/dsh-integration` is the only module that imports Cordis. It currently registers `ctx.monashStudyKnowledge` through the product-owned `StudyRuntime` composition boundary, whose default knowledge provider is LightRAG. DSH integration does not import `LightRAGWorkerClient`, SQLite state, or Python internals. Later DSH tool schemas, presentation metadata, preset composition, and UI extensions belong in this integration layer or their product modules, not in DSH Core.
+`packages/dsh-integration` is the only module that imports Cordis and is also the Harness-specific adapter boundary. It registers `ctx.monashStudyKnowledge` through the product-owned `StudyRuntime` composition boundary, whose default knowledge provider is LightRAG, and exposes `DeepSeekHarnessRuntime` for the Main Agent path. Product code selects logical `fast`/`strong` profiles; the adapter maps them to the pinned DSH provider/model route and keeps Harness response types out of `shared-types` and `study-core`. DSH integration does not import `LightRAGWorkerClient`, SQLite state, or Python internals. Knowledge and Memory tools remain intentionally unopened in Round 1.
 
 ## Next architecture stages
 

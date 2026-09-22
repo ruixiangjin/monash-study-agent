@@ -6,6 +6,7 @@
   "type": "module",
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
+    "agent-smoke": "tsx scripts/agent-smoke.ts",
     "check": "pnpm run typecheck",
     "lightrag": "tsx scripts/lightrag.ts",
     "normalize": "tsx scripts/normalize.ts",

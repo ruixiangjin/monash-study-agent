@@ -1,10 +1,24 @@
+import { randomUUID } from 'node:crypto'
+import type { CourseContext } from '@monash-study/study-core'
+import {
+  DefaultModelPolicy,
+  NoopAgentEventSink,
+  StudyRuntimeError,
+  toStudyRuntimeError,
+  type AgentEvent,
+  type AgentEventSink,
+  type ModelPolicy,
+  type StudyAgentRuntime,
+  type StudyTurnInput,
+  type StudyTurnOptions,
+  type StudyTurnResult,
+} from '@monash-study/study-core'
 import type {
   KnowledgeService,
   StudyDecisionService,
   StudyModelService,
   StudyTool,
 } from '@monash-study/study-core'
-import type { StudyState } from '@monash-study/shared-types'
 
 /** Replaceable services coordinated by the future StudyController workflow. */
 export interface StudyControllerDependencies {
@@ -14,7 +28,93 @@ export interface StudyControllerDependencies {
   readonly tools: ReadonlyMap<string, StudyTool>
 }
 
-/** Controller capability exposed to DSH without binding provider implementations. */
-export interface StudyController {
-  run(query: string): Promise<Readonly<StudyState>>
+export interface StudyControllerOptions {
+  readonly eventSink?: AgentEventSink
+  readonly runIdFactory?: () => string
+}
+
+/** Thin product orchestration boundary over a provider-neutral StudyAgentRuntime. */
+export class StudyController {
+  private readonly eventSink: AgentEventSink
+  private readonly runIdFactory: () => string
+
+  constructor(
+    private readonly runtime: StudyAgentRuntime,
+    private readonly modelPolicy: ModelPolicy = new DefaultModelPolicy(),
+    options: StudyControllerOptions = {},
+  ) {
+    this.eventSink = options.eventSink ?? new NoopAgentEventSink()
+    this.runIdFactory = options.runIdFactory ?? randomUUID
+  }
+
+  async runTurn(input: StudyTurnInput, options: StudyTurnOptions = {}): Promise<StudyTurnResult> {
+    const runId = options.runId ?? this.runIdFactory()
+    const eventSink = options.eventSink ?? this.eventSink
+    await emit(eventSink, event(runId, 'run_started'))
+
+    try {
+      const normalizedInput = validateStudyTurnInput(input)
+      const modelProfile = this.modelPolicy.selectModel('main_agent')
+      const result = await this.runtime.runTurn(normalizedInput, {
+        ...options,
+        runId,
+        modelProfile,
+        eventSink,
+      })
+      const completed = { ...result, runId, modelProfile }
+      await emit(eventSink, event(runId, 'run_completed', {
+        modelProfile,
+        sessionId: result.conversation.sessionId,
+        conversationId: result.conversation.conversationId,
+        turnId: result.turnId,
+      }))
+      return completed
+    } catch (error) {
+      const runtimeError = error instanceof StudyRuntimeError
+        ? error
+        : toStudyRuntimeError(error, 'UNKNOWN')
+      await emit(eventSink, event(runId, 'run_failed', { errorCode: runtimeError.code }))
+      throw runtimeError
+    }
+  }
+}
+
+function validateStudyTurnInput(input: StudyTurnInput): StudyTurnInput {
+  if (input.query.trim().length === 0) {
+    throw new StudyRuntimeError('INVALID_INPUT', 'Study Agent query must not be empty.')
+  }
+  if (input.courseContext !== undefined) validateCourseContext(input.courseContext)
+  return {
+    ...input,
+    query: input.query.trim(),
+  }
+}
+
+function validateCourseContext(courseContext: CourseContext): void {
+  if (courseContext.courseCode.trim().length === 0) {
+    throw new StudyRuntimeError('INVALID_INPUT', 'Course context requires a courseCode.')
+  }
+  if (courseContext.week !== undefined && (!Number.isInteger(courseContext.week) || courseContext.week < 0)) {
+    throw new StudyRuntimeError('INVALID_INPUT', 'Course context week must be a non-negative integer.')
+  }
+  if (courseContext.topic !== undefined && courseContext.topic.trim().length === 0) {
+    throw new StudyRuntimeError('INVALID_INPUT', 'Course context topic must not be empty when provided.')
+  }
+}
+
+function event(
+  runId: string,
+  type: AgentEvent['type'],
+  details: Partial<Pick<AgentEvent, 'sessionId' | 'conversationId' | 'turnId' | 'modelProfile' | 'errorCode'>> = {},
+): AgentEvent {
+  return {
+    runId,
+    timestamp: new Date().toISOString(),
+    type,
+    ...details,
+  }
+}
+
+async function emit(sink: AgentEventSink, value: AgentEvent): Promise<void> {
+  await sink.emit(value)
 }

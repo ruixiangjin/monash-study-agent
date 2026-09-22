@@ -1,0 +1,8 @@
+# Main Study Agent prompt overlay for the DSH SDK profile.
+# The product runtime supplies MONASH_STUDY_AGENT_SYSTEM_PROMPT; the current
+# course context remains a separate user-turn runtime context.
+- id: system-prompt
+  config:
+    includeHarnessIdentity: false
+    includeRuntimeContext: false
+    personaPrefix: !!js process.env.MONASH_STUDY_AGENT_SYSTEM_PROMPT
