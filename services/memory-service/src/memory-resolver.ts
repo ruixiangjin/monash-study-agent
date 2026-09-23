@@ -49,7 +49,9 @@ export class MemoryResolver {
     const existing = findExisting(this.#store, candidate)
 
     if (candidate.operation === 'DELETE') {
-      if (candidate.sourceType !== 'user_explicit' || existing === undefined) {
+      if (candidate.sourceType !== 'user_explicit'
+        || candidate.deleteIntent !== 'explicit_user_forget'
+        || existing === undefined) {
         return noop(existing)
       }
       return { operation: 'DELETE', memoryId: existing.memoryId }

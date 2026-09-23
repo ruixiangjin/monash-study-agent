@@ -9,6 +9,7 @@ export interface MemoryObservation {
   readonly userMessage: string
   readonly assistantResponse: string
   readonly sourceSessionId: string
+  readonly sourceTurnId?: string
   readonly course?: string
   readonly topic?: string
 }
@@ -26,6 +27,8 @@ export interface MemoryCandidate {
   readonly confidence?: number
   readonly sourceType?: MemorySourceType
   readonly sourceSessionId?: string
+  readonly sourceTurnId?: string
+  readonly deleteIntent?: 'explicit_user_forget'
 }
 
 export interface MemoryCandidateExtractor {

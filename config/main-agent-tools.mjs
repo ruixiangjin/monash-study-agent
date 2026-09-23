@@ -52,6 +52,30 @@ export function apply(ctx) {
       required: ['query'],
     },
   })
+
+  register(ctx, {
+    name: 'manage_memory',
+    description: 'Deliberately form or manage long-term student Memory during the current turn. Use for explicit remember/change/resolve/archive requests and explicit user forget requests. Normal turns are also observed after completion, so this tool is not required on every turn.',
+    parameters: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        operation: { type: 'string', enum: ['ADD', 'UPDATE', 'RESOLVE', 'ARCHIVE', 'DELETE'], description: 'Requested lifecycle operation. The resolver may return NOOP.' },
+        kind: { type: 'string', enum: ['preference', 'study_progress', 'weakness', 'learning_episode', 'study_strategy'], description: 'Required for ADD/UPDATE.' },
+        scope: { type: 'string', enum: ['global', 'course', 'topic'], description: 'Required for ADD/UPDATE.' },
+        course: { type: 'string', description: 'Course scope. Defaults to the current course context when applicable.' },
+        topic: { type: 'string', description: 'Topic scope. Defaults to the current topic context when applicable.' },
+        memoryKey: { type: 'string', description: 'Canonical key for preference, progress, weakness, or strategy.' },
+        targetMemoryId: { type: 'string', description: 'Known Memory id for resolve, archive, or delete.' },
+        content: { type: 'string', description: 'Durable Memory content. Required for ADD/UPDATE.' },
+        importance: { type: 'number', minimum: 0, maximum: 1, description: 'Importance score for ADD/UPDATE.' },
+        confidence: { type: 'number', minimum: 0, maximum: 1, description: 'Confidence score for ADD/UPDATE.' },
+        sourceType: { type: 'string', enum: ['user_explicit', 'system_observed', 'derived', 'agent_inferred'], description: 'True information source; tool use alone does not make a candidate user_explicit.' },
+        deleteIntent: { type: 'string', enum: ['explicit_user_forget'], description: 'Required only for DELETE and only when the user explicitly asked to forget or delete the Memory.' },
+      },
+      required: ['operation', 'sourceType'],
+    },
+  })
 }
 
 function register(ctx, definition) {

@@ -255,6 +255,78 @@ test('MemoryService observes candidates, recalls them, and supports explicit for
   assert.deepEqual(runtime.store.listEvents(memoryId).map((event) => event.operation), ['ADD', 'DELETE'])
 })
 
+test('resolver executes Hard Delete only with explicit user forget intent', async (context) => {
+  const runtime = await setup(context)
+  const memoryId = await write(runtime, preferenceCandidate('Prefers Chinese explanations'))
+
+  assert.deepEqual(runtime.resolver.resolve({
+    operation: 'DELETE',
+    targetMemoryId: memoryId,
+    sourceType: 'user_explicit',
+  }), { operation: 'NOOP', memoryId })
+  assert.deepEqual(runtime.resolver.resolve({
+    operation: 'DELETE',
+    targetMemoryId: memoryId,
+    sourceType: 'agent_inferred',
+    deleteIntent: 'explicit_user_forget',
+  }), { operation: 'NOOP', memoryId })
+
+  const decision = runtime.resolver.resolve({
+    operation: 'DELETE',
+    targetMemoryId: memoryId,
+    sourceType: 'user_explicit',
+    deleteIntent: 'explicit_user_forget',
+  })
+  assert.equal(decision.operation, 'DELETE')
+  await runtime.lifecycle.apply(decision)
+  assert.equal(runtime.store.get(memoryId), undefined)
+})
+
+test('hybrid formation keeps canonical state unique and deduplicates exact same-turn episodes', async (context) => {
+  const runtime = await setup(context)
+  const canonical = preferenceCandidate('Prefers Chinese explanations')
+  const { sourceSessionId: _sourceSessionId, ...episodeWithoutSession } = episodeCandidate(
+    'Confused reset and revert during this turn',
+    0.8,
+  )
+  const episode = {
+    ...episodeWithoutSession,
+    sourceTurnId: 'run-hybrid',
+  } satisfies MemoryCandidate
+  const service = new MemoryService({
+    ...runtime,
+    extractor: {
+      async extract(observation) {
+        return [{
+          ...canonical,
+          sourceSessionId: observation.sourceSessionId,
+          ...(observation.sourceTurnId === undefined ? {} : { sourceTurnId: observation.sourceTurnId }),
+        }, { ...episode, sourceSessionId: observation.sourceSessionId }]
+      },
+    },
+  })
+
+  await service.manage({
+    ...canonical,
+    sourceSessionId: 'session-hybrid',
+    sourceTurnId: 'run-hybrid',
+  })
+  await service.manage(episode)
+  const observed = await service.observe({
+    userMessage: 'Remember this turn.',
+    assistantResponse: 'Done.',
+    sourceSessionId: 'session-hybrid',
+    sourceTurnId: 'run-hybrid',
+  })
+
+  assert.equal(runtime.store.listActive().filter((memory) => memory.kind === 'preference').length, 1)
+  assert.equal(runtime.store.listActiveEpisodes('FIT2109').length, 1)
+  assert.deepEqual(observed.map((result) => result.operation), ['NOOP', 'NOOP'])
+
+  await service.manage({ ...episode, sourceTurnId: 'run-later' })
+  assert.equal(runtime.store.listActiveEpisodes('FIT2109').length, 2)
+})
+
 class FakeEmbeddingProvider implements MemoryEmbeddingProvider {
   readonly model = 'deterministic-round-2'
 

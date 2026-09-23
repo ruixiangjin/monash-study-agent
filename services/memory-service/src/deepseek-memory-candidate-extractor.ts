@@ -22,7 +22,7 @@ Allowed sourceType: user_explicit, system_observed, derived, agent_inferred.
 Use canonical keys with prefixes preference:, progress:, weakness:, strategy:.
 Use study_strategy for a course/topic-specific method for learning a subject; reserve preference for global user preferences such as language or explanation style.
 Learning episodes must not have memoryKey. Never invent facts. Prefer no candidate over weak inference.
-DELETE is only for an explicit user request to forget. RESOLVE requires clear evidence that a weakness or progress state ended.`
+DELETE is only for an explicit user request to forget and must include "deleteIntent":"explicit_user_forget". RESOLVE requires clear evidence that a weakness or progress state ended.`
 
 export class DeepSeekFlashMemoryCandidateExtractor implements MemoryCandidateExtractor {
   readonly #provider: MemoryCompletionProvider
@@ -83,6 +83,8 @@ function parseCandidate(value: unknown, observation: MemoryObservation, index: n
     ...(isUnitNumber(value.confidence) ? { confidence: value.confidence } : { confidence: 0.7 }),
     ...(isSourceType(value.sourceType) ? { sourceType: value.sourceType } : {}),
     sourceSessionId: observation.sourceSessionId,
+    ...(observation.sourceTurnId === undefined ? {} : { sourceTurnId: observation.sourceTurnId }),
+    ...(value.deleteIntent === 'explicit_user_forget' ? { deleteIntent: value.deleteIntent } : {}),
   }
   const normalized = normalizeScopeFields(withDerivedMemoryKey(candidate))
   validateCandidate(normalized, index)
@@ -154,8 +156,9 @@ function validateCandidate(candidate: MemoryCandidate, index: number): void {
       throw new Error(`Canonical Memory candidate ${index} requires memoryKey`)
     }
   }
-  if (candidate.operation === 'DELETE' && candidate.sourceType !== 'user_explicit') {
-    throw new Error(`DELETE candidate ${index} must be user_explicit`)
+  if (candidate.operation === 'DELETE'
+    && (candidate.sourceType !== 'user_explicit' || candidate.deleteIntent !== 'explicit_user_forget')) {
+    throw new Error(`DELETE candidate ${index} requires explicit user forget intent`)
   }
 }
 

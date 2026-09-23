@@ -1,4 +1,13 @@
-import type { Evidence, ResourceText, StudentMemory } from '@monash-study/shared-types'
+import type {
+  Evidence,
+  MemoryKind,
+  MemoryOperation,
+  MemoryScope,
+  MemorySourceType,
+  MemoryWriteResult,
+  ResourceText,
+  StudentMemory,
+} from '@monash-study/shared-types'
 import type { CourseContext } from './prompts/main-study-agent-prompt.js'
 
 /** The first stable Main Agent task understood by ModelPolicy. */
@@ -51,6 +60,25 @@ export interface StudentContextBuilder {
   build(input: StudentContextBuildInput): Promise<StudentContext>
 }
 
+/** Safe completed-turn projection supplied to the post-turn Memory formation seam. */
+export interface StudyPostTurnObservation {
+  readonly userMessage: string
+  readonly assistantResponse: string
+  readonly sourceSessionId: string
+  readonly sourceTurnId: string
+  readonly runId: string
+  readonly conversationId: string
+  readonly turnId: string
+  readonly course?: string
+  readonly topic?: string
+  readonly week?: number
+}
+
+/** Structural capability used by StudyController without importing MemoryService. */
+export interface StudyPostTurnObserver {
+  observe(input: StudyPostTurnObservation): Promise<readonly unknown[] | void>
+}
+
 /** Resource read capability exposed to the Main Agent tool bridge. */
 export interface StudyResourceReader {
   readText(resourceId: string): Promise<ResourceText>
@@ -67,7 +95,32 @@ export interface StudyMemoryReader {
   }): Promise<readonly StudentMemoryContext[]>
 }
 
-/** Product capabilities used by the three Round 2 read tools. */
+export type StudyMemoryDeleteIntent = 'explicit_user_forget'
+
+/** Structural form of the existing MemoryCandidate contract used by manage_memory. */
+export interface StudyMemoryManagementCommand {
+  readonly operation: MemoryOperation
+  readonly kind?: MemoryKind
+  readonly scope?: MemoryScope
+  readonly course?: string | null
+  readonly topic?: string | null
+  readonly memoryKey?: string
+  readonly targetMemoryId?: string
+  readonly content?: string
+  readonly importance?: number
+  readonly confidence?: number
+  readonly sourceType?: MemorySourceType
+  readonly sourceSessionId?: string
+  readonly sourceTurnId?: string
+  readonly deleteIntent?: StudyMemoryDeleteIntent
+}
+
+/** Memory mutation capability exposed to the Main Agent tool bridge. */
+export interface StudyMemoryManager {
+  manage(command: StudyMemoryManagementCommand): Promise<MemoryWriteResult>
+}
+
+/** Product capabilities exposed through the Main Agent tool bridge. */
 export interface StudyAgentToolServices {
   readonly knowledgeService?: {
     search(input: {
@@ -79,6 +132,7 @@ export interface StudyAgentToolServices {
   }
   readonly resourceReader?: StudyResourceReader
   readonly memoryReader?: StudyMemoryReader
+  readonly memoryManager?: StudyMemoryManager
 }
 
 /** Minimal lifecycle events emitted by a Study Agent run. */
@@ -87,8 +141,13 @@ export type AgentEventType =
   | 'model_started'
   | 'model_completed'
   | 'answer_completed'
+  | 'memory_observation_started'
+  | 'memory_observation_completed'
+  | 'memory_observation_failed'
   | 'run_completed'
   | 'run_failed'
+
+export type AgentEventErrorCode = StudyRuntimeErrorCode | 'MEMORY_OBSERVATION_FAILED'
 
 /** Product-owned event shape; raw prompts, responses, and secrets are intentionally absent. */
 export interface AgentEvent {
@@ -99,7 +158,8 @@ export interface AgentEvent {
   readonly conversationId?: string
   readonly turnId?: string
   readonly modelProfile?: ModelProfile
-  readonly errorCode?: StudyRuntimeErrorCode
+  readonly resultCount?: number
+  readonly errorCode?: AgentEventErrorCode
 }
 
 /** Small observation seam for UI, tests, and later tracing integrations. */

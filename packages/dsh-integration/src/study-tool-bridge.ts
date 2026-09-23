@@ -4,6 +4,7 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import type { Evidence } from '@monash-study/shared-types'
 import type {
   StudyAgentToolServices,
+  StudyMemoryManagementCommand,
   StudyTurnInput,
   StudentMemoryContext,
 } from '@monash-study/study-core'
@@ -170,10 +171,92 @@ export class StudyToolBridge {
         })
         return { query, memories: memories.map(toMemoryToolValue) }
       }
+      case 'manage_memory': {
+        if (this.#services.memoryManager === undefined) throw new Error('Memory management is unavailable')
+        const command = memoryManagementCommand(args, active)
+        try {
+          const result = await this.#services.memoryManager.manage(command)
+          return {
+            operation: result.operation,
+            memoryId: result.memory?.memoryId ?? command.targetMemoryId ?? null,
+            memoryKey: result.memory?.memoryKey ?? command.memoryKey ?? null,
+            status: result.memory?.status ?? (result.operation === 'DELETE' ? 'deleted' : null),
+            kind: result.memory?.kind ?? command.kind ?? null,
+            scope: result.memory?.scope ?? command.scope ?? null,
+          }
+        } catch {
+          throw new Error('Memory management failed')
+        }
+      }
       default:
         throw new Error(`Unknown Study Agent tool: ${request.name}`)
     }
   }
+}
+
+function memoryManagementCommand(
+  args: Record<string, unknown>,
+  active: ActiveRun,
+): StudyMemoryManagementCommand {
+  const operation = requiredEnum(args, 'operation', ['ADD', 'UPDATE', 'RESOLVE', 'ARCHIVE', 'DELETE'] as const)
+  const sourceType = requiredEnum(args, 'sourceType', [
+    'user_explicit', 'system_observed', 'derived', 'agent_inferred',
+  ] as const)
+  const memoryKey = optionalString(args, 'memoryKey')
+  const targetMemoryId = optionalString(args, 'targetMemoryId')
+  const common = {
+    operation,
+    sourceType,
+    ...(memoryKey === undefined ? {} : { memoryKey }),
+    ...(targetMemoryId === undefined ? {} : { targetMemoryId }),
+    ...(active.input.conversation?.sessionId === undefined
+      ? {}
+      : { sourceSessionId: active.input.conversation.sessionId }),
+    sourceTurnId: active.runId,
+  } as const
+
+  if (operation === 'ADD' || operation === 'UPDATE') {
+    const kind = requiredEnum(args, 'kind', [
+      'preference', 'study_progress', 'weakness', 'learning_episode', 'study_strategy',
+    ] as const)
+    const scope = requiredEnum(args, 'scope', ['global', 'course', 'topic'] as const)
+    const content = requiredString(args, 'content')
+    const importance = requiredUnitNumber(args, 'importance')
+    const confidence = requiredUnitNumber(args, 'confidence')
+    if (kind === 'learning_episode' && memoryKey !== undefined) {
+      throw new Error('Learning episode management cannot include memoryKey')
+    }
+    if (kind !== 'learning_episode' && memoryKey === undefined) {
+      throw new Error('Canonical Memory management requires memoryKey')
+    }
+    const course = scope === 'global'
+      ? undefined
+      : optionalString(args, 'course') ?? active.input.courseContext?.courseCode
+    const topic = scope === 'topic'
+      ? optionalString(args, 'topic') ?? active.input.courseContext?.topic
+      : undefined
+    return {
+      ...common,
+      kind,
+      scope,
+      content,
+      importance,
+      confidence,
+      ...(course === undefined ? {} : { course }),
+      ...(topic === undefined ? {} : { topic }),
+    }
+  }
+
+  if (targetMemoryId === undefined && memoryKey === undefined) {
+    throw new Error(`${operation} requires targetMemoryId or memoryKey`)
+  }
+  if (operation === 'DELETE') {
+    if (sourceType !== 'user_explicit' || args.deleteIntent !== 'explicit_user_forget') {
+      throw new Error('DELETE requires explicit user forget intent')
+    }
+    return { ...common, deleteIntent: 'explicit_user_forget' }
+  }
+  return common
 }
 
 function toMemoryToolValue(context: StudentMemoryContext): unknown {
@@ -198,6 +281,26 @@ function optionalString(args: Record<string, unknown>, key: string): string | un
 function optionalInteger(args: Record<string, unknown>, key: string): number | undefined {
   const value = args[key]
   return typeof value === 'number' && Number.isInteger(value) && value >= 0 ? value : undefined
+}
+
+function requiredUnitNumber(args: Record<string, unknown>, key: string): number {
+  const value = args[key]
+  if (typeof value !== 'number' || !Number.isFinite(value) || value < 0 || value > 1) {
+    throw new Error(`${key} must be a number between 0 and 1`)
+  }
+  return value
+}
+
+function requiredEnum<const T extends readonly string[]>(
+  args: Record<string, unknown>,
+  key: string,
+  allowed: T,
+): T[number] {
+  const value = args[key]
+  if (typeof value !== 'string' || !allowed.includes(value)) {
+    throw new Error(`${key} must be one of: ${allowed.join(', ')}`)
+  }
+  return value
 }
 
 async function readJson(request: IncomingMessage): Promise<unknown> {

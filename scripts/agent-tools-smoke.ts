@@ -53,6 +53,7 @@ async function main(): Promise<void> {
       knowledgeService,
       resourceReader,
       memoryReader: memoryService,
+      memoryManager: memoryService,
     },
   })
   const controller = new StudyController(

@@ -22,7 +22,7 @@ test('Main Study Agent prompt keeps version, course context, and query invariant
     query: 'Explain branches.',
     courseContext: { courseCode: 'FIT2109', week: 4, topic: 'Git' },
   })
-  assert.equal(MAIN_STUDY_AGENT_PROMPT_VERSION, 'main-study-agent-v2')
+  assert.equal(MAIN_STUDY_AGENT_PROMPT_VERSION, 'main-study-agent-v3')
   assert.match(rendered.systemPrompt, /Monash Study Agent/)
   assert.match(rendered.runtimeContext, /courseCode: FIT2109/)
   assert.match(rendered.runtimeContext, /week: 4/)
@@ -127,6 +127,100 @@ test('StudyController emits the required success event order', async () => {
   ])
 })
 
+test('StudyController awaits one completed-turn observation with real turn identity', async () => {
+  const sink = new InMemoryAgentEventSink()
+  const sequence: string[] = []
+  let observation: Record<string, unknown> | undefined
+  const runtime: StudyAgentRuntime = {
+    async runTurn(): Promise<StudyTurnResult> {
+      sequence.push('runtime_completed')
+      return {
+        runId: 'runtime-run',
+        answer: 'Use a commit graph.',
+        conversation: { sessionId: 'session-observe', conversationId: 'session-observe' },
+        turnId: '7',
+        modelProfile: 'fast',
+        promptVersion: MAIN_STUDY_AGENT_PROMPT_VERSION,
+        evidence: [],
+        toolsUsed: [],
+      }
+    },
+  }
+  const controller = new StudyController(runtime, new DefaultModelPolicy(), {
+    eventSink: sink,
+    runIdFactory: () => 'run-observe',
+    postTurnObserver: {
+      async observe(input) {
+        sequence.push('observation_completed')
+        observation = input as unknown as Record<string, unknown>
+        return [{ operation: 'ADD' }]
+      },
+    },
+  })
+
+  const result = await controller.runTurn({
+    query: 'I confuse reset and revert.',
+    courseContext: { courseCode: 'FIT2109', week: 4, topic: 'Git' },
+  })
+
+  assert.equal(result.answer, 'Use a commit graph.')
+  assert.deepEqual(sequence, ['runtime_completed', 'observation_completed'])
+  assert.deepEqual(observation, {
+    userMessage: 'I confuse reset and revert.',
+    assistantResponse: 'Use a commit graph.',
+    sourceSessionId: 'session-observe',
+    sourceTurnId: 'run-observe',
+    runId: 'run-observe',
+    conversationId: 'session-observe',
+    turnId: '7',
+    course: 'FIT2109',
+    topic: 'Git',
+    week: 4,
+  })
+  assert.deepEqual(sink.events.map((event) => event.type), [
+    'run_started',
+    'memory_observation_started',
+    'memory_observation_completed',
+    'run_completed',
+  ])
+  assert.equal(sink.events[2]?.resultCount, 1)
+})
+
+test('Post-turn observation failure is non-fatal and emits a safe lifecycle event', async () => {
+  const sink = new InMemoryAgentEventSink()
+  const result: StudyTurnResult = {
+    runId: 'runtime-run',
+    answer: 'Successful answer.',
+    conversation: { sessionId: 'session-a', conversationId: 'session-a' },
+    turnId: '2',
+    modelProfile: 'fast',
+    promptVersion: MAIN_STUDY_AGENT_PROMPT_VERSION,
+    evidence: [],
+    toolsUsed: [],
+  }
+  const controller = new StudyController(
+    { async runTurn() { return result } },
+    new DefaultModelPolicy(),
+    {
+      eventSink: sink,
+      runIdFactory: () => 'run-observation-failure',
+      postTurnObserver: { async observe() { throw new Error('secret provider detail') } },
+    },
+  )
+
+  const actual = await controller.runTurn({ query: 'Question' })
+  assert.equal(actual.answer, 'Successful answer.')
+  assert.deepEqual(sink.events.map((event) => event.type), [
+    'run_started',
+    'memory_observation_started',
+    'memory_observation_failed',
+    'run_completed',
+  ])
+  assert.equal(sink.events[2]?.errorCode, 'MEMORY_OBSERVATION_FAILED')
+  assert.equal(sink.events.some((event) => event.type === 'run_failed'), false)
+  assert.equal(JSON.stringify(sink.events).includes('secret provider detail'), false)
+})
+
 test('Harness failures are translated once at the runtime boundary and emit one run_failed', async () => {
   const sink = new InMemoryAgentEventSink()
   const harness: DeepSeekHarnessDriver = {
@@ -138,10 +232,15 @@ test('Harness failures are translated once at the runtime boundary and emit one 
       }
     },
   }
+  let observationCalls = 0
   const controller = new StudyController(
     new DeepSeekHarnessRuntime({ harness }),
     new DefaultModelPolicy(),
-    { eventSink: sink, runIdFactory: () => 'run-failure' },
+    {
+      eventSink: sink,
+      runIdFactory: () => 'run-failure',
+      postTurnObserver: { async observe() { observationCalls += 1 } },
+    },
   )
 
   await assert.rejects(
@@ -150,5 +249,6 @@ test('Harness failures are translated once at the runtime boundary and emit one 
       && error.code === 'HARNESS_ERROR'
       && error.message === 'DeepSeek Harness could not complete the Study Agent turn.',
   )
+  assert.equal(observationCalls, 0)
   assert.equal(sink.events.filter((event) => event.type === 'run_failed').length, 1)
 })

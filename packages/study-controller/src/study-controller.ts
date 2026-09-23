@@ -9,6 +9,7 @@ import {
   type AgentEventSink,
   type ModelPolicy,
   type StudyAgentRuntime,
+  type StudyPostTurnObserver,
   type StudentContextBuilder,
   type StudyTurnInput,
   type StudyTurnOptions,
@@ -33,6 +34,7 @@ export interface StudyControllerOptions {
   readonly eventSink?: AgentEventSink
   readonly runIdFactory?: () => string
   readonly studentContextBuilder?: StudentContextBuilder
+  readonly postTurnObserver?: StudyPostTurnObserver
 }
 
 /** Thin product orchestration boundary over a provider-neutral StudyAgentRuntime. */
@@ -40,6 +42,7 @@ export class StudyController {
   private readonly eventSink: AgentEventSink
   private readonly runIdFactory: () => string
   private readonly studentContextBuilder: StudentContextBuilder | undefined
+  private readonly postTurnObserver: StudyPostTurnObserver | undefined
 
   constructor(
     private readonly runtime: StudyAgentRuntime,
@@ -49,6 +52,7 @@ export class StudyController {
     this.eventSink = options.eventSink ?? new NoopAgentEventSink()
     this.runIdFactory = options.runIdFactory ?? randomUUID
     this.studentContextBuilder = options.studentContextBuilder
+    this.postTurnObserver = options.postTurnObserver
   }
 
   async runTurn(input: StudyTurnInput, options: StudyTurnOptions = {}): Promise<StudyTurnResult> {
@@ -80,6 +84,7 @@ export class StudyController {
         evidence: result.evidence ?? [],
         toolsUsed: result.toolsUsed ?? [],
       }
+      await this.#observeCompletedTurn(normalizedInput, completed, eventSink)
       await emit(eventSink, event(runId, 'run_completed', {
         modelProfile,
         sessionId: result.conversation.sessionId,
@@ -93,6 +98,44 @@ export class StudyController {
         : toStudyRuntimeError(error, 'UNKNOWN')
       await emit(eventSink, event(runId, 'run_failed', { errorCode: runtimeError.code }))
       throw runtimeError
+    }
+  }
+
+  async #observeCompletedTurn(
+    input: StudyTurnInput,
+    result: StudyTurnResult,
+    eventSink: AgentEventSink,
+  ): Promise<void> {
+    if (this.postTurnObserver === undefined) return
+    const details = {
+      modelProfile: result.modelProfile,
+      sessionId: result.conversation.sessionId,
+      conversationId: result.conversation.conversationId,
+      turnId: result.turnId,
+    } as const
+    await emit(eventSink, event(result.runId, 'memory_observation_started', details))
+    try {
+      const observationResult = await this.postTurnObserver.observe({
+        userMessage: input.query,
+        assistantResponse: result.answer,
+        sourceSessionId: result.conversation.sessionId,
+        sourceTurnId: result.runId,
+        runId: result.runId,
+        conversationId: result.conversation.conversationId,
+        turnId: result.turnId,
+        ...(input.courseContext?.courseCode === undefined ? {} : { course: input.courseContext.courseCode }),
+        ...(input.courseContext?.topic === undefined ? {} : { topic: input.courseContext.topic }),
+        ...(input.courseContext?.week === undefined ? {} : { week: input.courseContext.week }),
+      })
+      await emit(eventSink, event(result.runId, 'memory_observation_completed', {
+        ...details,
+        ...(Array.isArray(observationResult) ? { resultCount: observationResult.length } : {}),
+      }))
+    } catch {
+      await emit(eventSink, event(result.runId, 'memory_observation_failed', {
+        ...details,
+        errorCode: 'MEMORY_OBSERVATION_FAILED',
+      }))
     }
   }
 }
@@ -123,7 +166,7 @@ function validateCourseContext(courseContext: CourseContext): void {
 function event(
   runId: string,
   type: AgentEvent['type'],
-  details: Partial<Pick<AgentEvent, 'sessionId' | 'conversationId' | 'turnId' | 'modelProfile' | 'errorCode'>> = {},
+  details: Partial<Pick<AgentEvent, 'sessionId' | 'conversationId' | 'turnId' | 'modelProfile' | 'resultCount' | 'errorCode'>> = {},
 ): AgentEvent {
   return {
     runId,

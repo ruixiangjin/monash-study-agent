@@ -90,7 +90,7 @@ test('StudyController injects built Student Context without coupling to MemorySe
   assert.deepEqual((received?.studentContext as { memories: unknown[] }).memories, [MEMORY_CONTEXT])
 })
 
-test('StudyToolBridge executes all Round 2 read tools and collects Evidence', async () => {
+test('StudyToolBridge executes read and manage tools while keeping Memory results out of Evidence', async () => {
   const evidence: Evidence = {
     evidenceId: 'evidence-1',
     course: 'FIT2109',
@@ -121,6 +121,7 @@ test('StudyToolBridge executes all Round 2 read tools and collects Evidence', as
     content: '# Git notes',
   }
   let memoryRequest: Record<string, unknown> | undefined
+  let managementCommand: Record<string, unknown> | undefined
   const bridge = new StudyToolBridge({
     services: {
       knowledgeService: { async search() { return [evidence] } },
@@ -129,6 +130,12 @@ test('StudyToolBridge executes all Round 2 read tools and collects Evidence', as
         async recall(input) {
           memoryRequest = input
           return [MEMORY_CONTEXT]
+        },
+      },
+      memoryManager: {
+        async manage(command) {
+          managementCommand = command as unknown as Record<string, unknown>
+          return { operation: 'ADD', memory: MEMORY }
         },
       },
     },
@@ -147,17 +154,89 @@ test('StudyToolBridge executes all Round 2 read tools and collects Evidence', as
     const knowledge = await call('search_knowledge', { query: 'Git branch' })
     const resourceResult = await call('get_resource', { resourceId: 'resource-1' })
     const memory = await call('recall_memory', { query: 'Git preferences' })
+    const managed = await call('manage_memory', {
+      operation: 'ADD',
+      kind: 'preference',
+      scope: 'global',
+      memoryKey: 'preference:explanation-language',
+      content: 'Prefers Chinese explanations.',
+      importance: 0.9,
+      confidence: 1,
+      sourceType: 'user_explicit',
+    })
     assert.equal(knowledge.ok, true)
     assert.deepEqual(knowledge.value.evidence, [evidence])
     assert.deepEqual(resourceResult.value, resource)
     assert.equal(memory.ok, true)
     assert.deepEqual(memoryRequest, { query: 'Git preferences', course: 'FIT2109' })
+    assert.equal(managed.ok, true)
+    assert.deepEqual(managed.value, {
+      operation: 'ADD',
+      memoryId: 'memory-1',
+      memoryKey: 'preference:explanation-language',
+      status: 'active',
+      kind: 'preference',
+      scope: 'global',
+    })
+    assert.deepEqual(managementCommand, {
+      operation: 'ADD',
+      sourceType: 'user_explicit',
+      memoryKey: 'preference:explanation-language',
+      sourceTurnId: 'run-1',
+      kind: 'preference',
+      scope: 'global',
+      content: 'Prefers Chinese explanations.',
+      importance: 0.9,
+      confidence: 1,
+    })
     assert.deepEqual(bridge.snapshot('run-1'), {
       evidence: [evidence],
-      toolsUsed: ['search_knowledge', 'get_resource', 'recall_memory'],
+      toolsUsed: ['search_knowledge', 'get_resource', 'recall_memory', 'manage_memory'],
     })
   } finally {
     bridge.end('run-1')
+    await bridge.close()
+  }
+})
+
+test('StudyToolBridge validates DELETE intent and returns safe Memory failures', async () => {
+  const bridge = new StudyToolBridge({
+    services: {
+      memoryManager: {
+        async manage() {
+          throw new Error('internal stack detail DEEPSEEK_API_KEY=secret')
+        },
+      },
+    },
+  })
+  const endpoint = await bridge.start()
+  bridge.begin('run-delete', { query: 'Delete a memory.' })
+  const call = async (args: Record<string, unknown>): Promise<any> => {
+    const response = await fetch(endpoint.url, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${endpoint.token}`, 'content-type': 'application/json' },
+      body: JSON.stringify({ name: 'manage_memory', arguments: args }),
+    })
+    return response.json()
+  }
+  try {
+    const rejected = await call({
+      operation: 'DELETE', targetMemoryId: 'memory-1', sourceType: 'user_explicit',
+    })
+    assert.equal(rejected.ok, false)
+    assert.match(rejected.error.message, /explicit user forget intent/)
+
+    const failed = await call({
+      operation: 'DELETE',
+      targetMemoryId: 'memory-1',
+      sourceType: 'user_explicit',
+      deleteIntent: 'explicit_user_forget',
+    })
+    assert.deepEqual(failed, { ok: false, error: { message: 'Memory management failed' } })
+    assert.equal(JSON.stringify(failed).includes('DEEPSEEK_API_KEY'), false)
+    assert.deepEqual(bridge.snapshot('run-delete'), { evidence: [], toolsUsed: ['manage_memory'] })
+  } finally {
+    bridge.end('run-delete')
     await bridge.close()
   }
 })
