@@ -12,7 +12,7 @@ Actual implementation:
 → this document
 
 Last verified commit:
-`6932562bb48b02995ee0ba1f98a53a80de3f609a`
+`3bee2e0309995fd3373de42b1ab5e6490686ea18`
 
 Branch at verification:
 `feature/agent-tools-context`
@@ -24,7 +24,7 @@ This is an implementation reference, not a second design proposal. When the desi
 
 ## 1. Repository Snapshot
 
-The repository is a private pnpm TypeScript workspace with Python workers for Docling, LightRAG, and BGE-M3. The tracked baseline at the verification commit contains 127 files, 88 TypeScript files, 6 Python files, 16 test files, and about 10,700 lines across tracked TypeScript, Python, and JavaScript source. Generated `lib/`, `data/`, local Python environments, node modules, `.env`, and machine-specific source configuration are ignored.
+The repository is a private pnpm TypeScript workspace with Python workers for Docling, LightRAG, and BGE-M3. The tracked baseline at the verification commit contains 132 files, 93 TypeScript files, 6 Python files, 17 test files, and about 11,464 lines across tracked TypeScript, Python, and JavaScript source. Generated `lib/`, `data/`, local Python environments, node modules, `.env`, and machine-specific source configuration are ignored.
 
 The current runtime foundation is:
 
@@ -36,7 +36,7 @@ The current runtime foundation is:
 - `@monash-study/memory-service`: long-term student Memory persistence, candidate extraction, deterministic resolution, embedding, recall, and lifecycle.
 - `@monash-study/dsh-integration`: Cordis registration, the published DeepSeek Harness adapter, and the authenticated tool bridge.
 
-The stable Main Agent path now includes baseline Student Context, read and write tools, a final answer, and awaited Post-turn Memory Observation. `manage_memory` provides deliberate hot-path formation during the Harness loop; the successful completed-turn path supplies the same `MemoryService` with a system-triggered observation. Both paths reuse the existing Resolver, Lifecycle Manager, Store, and SQLite state.
+The stable Main Agent path now includes baseline Student Context, direct Knowledge/Resource/Memory tools, an optional native Research Subagent, a final answer, and awaited Post-turn Memory Observation. `manage_memory` provides deliberate hot-path formation during the Harness loop; the successful completed-turn path supplies the same `MemoryService` with a system-triggered observation. Research delegation is bounded and read-only: the child can use only `search_knowledge` and `get_resource`, and the Main Agent remains responsible for final synthesis. All paths reuse the existing product-owned services and SQLite state.
 
 ## 2. Current Architecture
 
@@ -88,6 +88,34 @@ DeepSeek Harness 0.1.6-alpha.2
                Final answer
 ```
 
+### Research Subagent Architecture
+
+```text
+Main Agent decides from the task prompt
+        │ complex multi-resource / coverage question
+        ▼
+native DSH research_subagent tool
+        │ fresh in-process child; strong logical model
+        │ toolFilter = search_knowledge, get_resource
+        │ maxDepth = 0; one bounded read-only task
+        ▼
+Research Subagent
+        │ repeated retrieval actions, up to 8 per StudyRun
+        ▼
+StudyToolBridge
+        │ LightRAG Evidence + ResourceText
+        ▼
+Research adapter
+        │ validates ResearchResult and discards unknown Evidence IDs
+        ▼
+Main Agent final synthesis
+        │ direct + Research Evidence deduplicated by evidenceId
+        ▼
+StudyTurnResult { answer, evidence, subagentsUsed, researchActions }
+```
+
+The product contract is provider-neutral: `ResearchTask` carries the delegated objective and course scope; `ResearchFinding` and `ResearchResult` carry the structured answer, Evidence ids, and limitations. DSH owns child execution and notifications, while the adapter maps those notifications into the product contract. `get_resource` remains a `ResourceText` read and never creates Evidence. The child has no Memory lifecycle access and cannot recursively delegate. Child failure emits safe `subagent_failed` metadata and leaves the Main Agent answer recoverable.
+
 ### Knowledge path
 
 ```text
@@ -138,7 +166,7 @@ Main Agent query
 | Normalization state | `NormalizationService` | JSON state files under `data/normalized/.state/` and normalized JSON/Markdown | `normalizeWithStatus()` |
 | LightRAG index state | `LightRAGIndexStateStore` | `lightrag_index_state`, sync run and operation tables in SQLite | `LightRAGSyncService` |
 | Evidence | `LightRAGKnowledgeService` creates it; `StudyToolBridge` deduplicates it for the active run | In-memory for a turn; Memory tool results stay outside this layer | `StudyTurnResult.evidence` |
-| Turn artifacts | DSH returns raw events internally; product returns answer, conversation, turn id, Evidence, and tools used | No product artifact store currently | `StudyTurnResult` |
+| Turn artifacts | DSH returns raw events internally; product returns answer, conversation, turn id, Evidence, tool names, and Research metadata | No product artifact store currently | `StudyTurnResult` |
 
 The repository therefore has one durable cross-session student state owner (`MemoryService`) and one durable derived course-retrieval state owner (`Knowledge Service` plus LightRAG state). Harness conversation state is deliberately not copied into either service.
 
@@ -165,12 +193,12 @@ monash-study-agent/
 ├── packages/
 │   ├── shared-types/          Shared Resource, Evidence, Memory, and Study DTOs
 │   ├── runtime-database/      SQLite connection and migrations
-│   ├── study-core/            Provider-neutral capabilities and Main Agent contracts
+│   ├── study-core/            Provider-neutral capabilities, Main Agent, and Research contracts
 │   ├── study-controller/      Product turn orchestration
-│   └── dsh-integration/       Cordis and DeepSeek Harness adapter boundary
+│   └── dsh-integration/       Cordis, Harness, and Research adapter boundary
 ├── resources/
 │   └── resources.json         Generated Resource Manifest snapshot
-├── scripts/                   CLI and smoke entry points
+├── scripts/                   CLI and smoke entry points, including Research smoke
 ├── services/
 │   ├── knowledge-service/     Resource discovery, normalization, LightRAG, Evidence
 │   └── memory-service/        Long-term Memory implementation
@@ -206,8 +234,10 @@ The tables below cover the tracked TypeScript and Python implementation, the pro
 
 | File | Main responsibility | Important exports | Depends on | Used by |
 | --- | --- | --- | --- | --- |
-| `packages/study-core/src/agent-runtime.ts` | Stable Main Agent runtime, completed-turn observer, tool capability, and event boundaries | `StudyAgentRuntime`, `StudyPostTurnObserver`, `StudyMemoryManager`, `StudyAgentToolServices`, `AgentEvent`, `StudyRuntimeError` | Shared types, prompt `CourseContext` | Controller, DSH adapter, tests |
-| `packages/study-core/src/prompts/main-study-agent-prompt.ts` | Versioned Main Agent instructions for four tools and Hybrid Memory behavior | `MAIN_STUDY_AGENT_PROMPT_VERSION`, tool/no-tool prompts, `CourseContext`, `renderMainStudyAgentPrompt` | `StudentContext` | DSH adapter, tests |
+| `packages/study-core/src/agent-runtime.ts` | Stable Main Agent runtime, completed-turn observer, tool capability, Research metadata, and event boundaries | `StudyAgentRuntime`, `StudyPostTurnObserver`, `StudyMemoryManager`, `StudyAgentToolServices`, `AgentEvent`, `StudyRuntimeError`, `StudyTurnResult` | Shared types, prompt `CourseContext` | Controller, DSH adapter, tests |
+| `packages/study-core/src/research-subagent.ts` | Provider-neutral ResearchTask/ResearchFinding/ResearchResult contracts, prompt parsing, validation, and safe Evidence attribution | `ResearchSubagent`, `ResearchTask`, `ResearchFinding`, `ResearchResult`, `validateResearchTask`, `sanitizeResearchResult` | Shared `Evidence` and study types | DSH adapter, prompts, tests |
+| `packages/study-core/src/prompts/main-study-agent-prompt.ts` | Versioned Main Agent instructions for direct tools, Research delegation, and Hybrid Memory behavior | `MAIN_STUDY_AGENT_PROMPT_VERSION`, tool/no-tool prompts, `CourseContext`, `renderMainStudyAgentPrompt` | `StudentContext`, Research constants | DSH adapter, tests |
+| `packages/study-core/src/prompts/research-subagent-prompt.ts` | Independent bounded Research Subagent persona and strict JSON output rules | `RESEARCH_SUBAGENT_SYSTEM_PROMPT` | Research contracts | DSH patch, DSH runtime |
 | `packages/study-core/src/student-context.ts` | Memory-backed context projection | `MemoryStudentContextBuilder` | Runtime context types | Controller, tool smoke |
 | `packages/study-core/src/knowledge-service.ts` | Replaceable retrieval capability | `KnowledgeQuery`, `KnowledgeService` | `Evidence` | LightRAG service, controller composition |
 | `packages/study-core/src/tools/study-tool.ts` | Product tool abstraction before DSH registration | `StudyToolRequest`, `StudyTool` | `Evidence` | Connectors and future controller tools |
@@ -226,13 +256,14 @@ The tables below cover the tracked TypeScript and Python implementation, the pro
 
 | File | Main responsibility | Important exports | Depends on | Used by |
 | --- | --- | --- | --- | --- |
-| `packages/dsh-integration/src/deepseek-harness-runtime.ts` | Maps product runtime to published DSH SDK, manages profiles/sessions, prompt patch, and tool bridge | `DeepSeekHarnessRuntime`, Harness driver/session/result contracts | DSH SDK, study-core, `StudyToolBridge` | `agent-smoke`, `agent-tools-smoke`, application |
-| `packages/dsh-integration/src/study-tool-bridge.ts` | Authenticated loopback bridge for read/write tools, safe mutation results, and per-run Evidence/tool metadata | `StudyToolBridge`, `StudyToolRunSnapshot` | Node HTTP, shared Evidence, structural study-core services | `DeepSeekHarnessRuntime` |
+| `packages/dsh-integration/src/deepseek-harness-runtime.ts` | Maps product runtime to published DSH SDK, manages profiles/sessions, native Research lifecycle events, prompt patch, and tool bridge | `DeepSeekHarnessRuntime`, Harness driver/session/result contracts | DSH SDK, study-core, `StudyToolBridge`, Research adapter | Agent smokes, application |
+| `packages/dsh-integration/src/research-adapter.ts` | Maps native DSH child notifications and outputs into validated product Research executions | `collectResearchExecutions`, `ResearchExecutionSnapshot` | DSH-shaped notifications, study-core Research contracts, Evidence | `DeepSeekHarnessRuntime`, tests |
+| `packages/dsh-integration/src/study-tool-bridge.ts` | Authenticated loopback bridge for read/write tools, safe mutation results, per-run Evidence/tool metadata, and bounded Research retrieval actions | `StudyToolBridge`, `StudyToolRunSnapshot` | Node HTTP, shared Evidence, structural study-core services | `DeepSeekHarnessRuntime`, native child |
 | `packages/dsh-integration/src/plugin.ts` | Cordis registration and product runtime service | `MonashStudyKnowledgeService`, `apply`, plugin `name` | Cordis, `createStudyRuntime` | DSH profile/patch |
 | `packages/dsh-integration/src/tools/local-resource-tool.ts` | Local resource-reader shape for future tool composition | `LocalResourceTool` | Shared Resource types | Future tool registry |
 | `packages/dsh-integration/src/index.ts` | DSH package public barrel | DSH exports | Adapter files | Root scripts |
 | `config/main-agent-tools.mjs` | Child-side declarations for `search_knowledge`, `get_resource`, `recall_memory`, and `manage_memory` | `name`, `inject`, `apply` | DSH tool injection surface, bridge env | Patched DSH child |
-| `config/main-agent.cordis.patch.yml` | Disables Harness identity/runtime prompt injection, supplies product prompt, inserts child tools | `system-prompt`, `monash-study-agent-tools` patch entries | DSH patch format | `DeepSeekHarnessRuntime` |
+| `config/main-agent.cordis.patch.yml` | Disables Harness identity/runtime prompt injection, supplies product prompts, inserts Main tools and native bounded Research child | `system-prompt`, `monash-study-agent-tools`, `monash-study-agent-research-subagent` patch entries | DSH patch format | `DeepSeekHarnessRuntime` |
 
 ### 5.4 Knowledge service and Python workers
 
@@ -297,6 +328,7 @@ The tables below cover the tracked TypeScript and Python implementation, the pro
 | `scripts/agent-smoke.ts` | Round 1 real Main Agent turn and optional conversation continuity smoke |
 | `scripts/agent-tools-smoke.ts` | Round 2 real Harness tool-calling and Evidence propagation smoke |
 | `scripts/agent-memory-smoke.ts` | Round 3 real Post-turn, `manage_memory`, and cross-session Recall smoke over temporary SQLite |
+| `scripts/agent-research-smoke.ts` | Round 4 real Main Agent delegation, native child retrieval, Research Evidence propagation, and final synthesis smoke |
 | `config/runtime.json` | LightRAG working root, SQLite path, DeepSeek model URL, BGE-M3, query limits |
 | `config/sources.example.json` | Portable Ed/Moodle root configuration example |
 | `.env.example` | Secret-name template containing `DEEPSEEK_API_KEY` only |
@@ -326,6 +358,7 @@ The tables below cover the tracked TypeScript and Python implementation, the pro
 | `tests/study-runtime.test.ts` | Product Knowledge composition root |
 | `tests/study-agent-runtime.test.ts` | Controller/runtime contracts, prompt, events, continuity, and error boundary |
 | `tests/study-agent-tools.test.ts` | Student Context injection, three bridge tools, and Evidence snapshot behavior |
+| `tests/research-subagent.test.ts` | Research contracts, Evidence attribution, native lifecycle adaptation, bounded retrieval, failure recovery, and DSH tool restriction |
 | `tests/fixtures/ed-discussions.json` | Forum normalization fixture |
 
 ## 6. Package Dependency Map
@@ -394,6 +427,34 @@ interface StudyTurnResult {
   promptVersion: string
   evidence: readonly Evidence[]
   toolsUsed: readonly string[]
+  subagentsUsed: readonly string[]
+  researchActions: number
+}
+
+interface ResearchTask {
+  taskId: string
+  objective: string
+  course: string
+  topic?: string
+  week?: number
+  studentContext?: StudentContext
+}
+
+interface ResearchFinding {
+  content: string
+  evidenceIds: readonly string[]
+}
+
+interface ResearchResult {
+  taskId: string
+  summary: string
+  findings: readonly ResearchFinding[]
+  evidenceIds: readonly string[]
+  limitations: readonly string[]
+}
+
+interface ResearchSubagent {
+  research(task: ResearchTask): Promise<ResearchResult>
 }
 
 interface StudyPostTurnObserver {
@@ -445,6 +506,8 @@ interface StudyAgentToolServices {
   memoryReader?: StudyMemoryReader
   memoryManager?: StudyMemoryManager
 }
+
+The Research boundary is provider-neutral. `ResearchSubagent.research()` accepts one bounded `ResearchTask`; the DSH adapter implements the native child execution and returns a validated `ResearchResult`. Only Evidence ids already collected by the parent bridge may appear in the result. `ResourceText` from `get_resource` remains outside the Evidence set.
 
 interface StudyTool {
   name: string
@@ -498,7 +561,7 @@ class MemoryService {
 
 ### Other stable seams
 
-- `ModelPolicy.selectModel('main_agent')` returns a logical `fast` or `strong` profile. The current `DefaultModelPolicy` always returns `fast`.
+- `ModelPolicy.selectModel('main_agent')` returns a logical `fast` or `strong` profile; `selectModel('research_agent')` returns the `strong` profile. The current Main Agent default remains `fast`, while the native DSH Research child is configured to `deepseek-v4-pro`.
 - `AgentEventSink.emit(event)` receives safe lifecycle metadata without prompts, answers, or secrets.
 - `LightRAGWorkerClient` is the TypeScript/Python protocol boundary.
 - `MemoryCompletionProvider` and `MemoryEmbeddingProvider` isolate real DeepSeek and BGE-M3 providers from Memory policy.
@@ -519,16 +582,17 @@ CLI or application caller
   → StudyToolBridge.begin(runId, input) when tools are configured
   → DeepSeekHarnessRuntime.#getHarness(profile)
   → harness.session(input.conversation?.sessionId).run(prompt.userPrompt)
-  → DSH Main Agent loop and optional child tool calls
+  → DSH Main Agent loop, direct tools, and optional native Research child
+  → collectResearchExecutions() validates child output and maps safe lifecycle metadata
   → extractTurnId(result.events)
   → StudyToolBridge.snapshot(runId)
-  → StudyTurnResult
+  → StudyTurnResult { answer, Evidence, toolsUsed, subagentsUsed, researchActions }
   → memory_observation_started
   → StudyPostTurnObserver.observe(completed turn)
   → MemoryService.observe()
   → memory_observation_completed or memory_observation_failed
   → StudyController emits run_completed
-  → caller receives final answer, conversation, Evidence, and tools used
+  → caller receives final answer, conversation, Evidence, tools used, and Research metadata
 ```
 
 Important details:
@@ -541,6 +605,8 @@ Important details:
 6. After a successful runtime result, the Controller awaits the injected structural observer with the user query, final answer, course/topic/week, real Harness session/conversation identity, turn id, and run id. The concrete `MemoryService` accepts this projection directly and owns extraction through persistence.
 7. Observation success or failure completes before `run_completed`. A Memory observation failure emits safe metadata with `MEMORY_OBSERVATION_FAILED`, preserves the successful answer, and does not emit `run_failed`.
 8. `StudyToolBridge.end(runId)` clears the active run in `finally`; Evidence and `toolsUsed` are not durable artifacts.
+
+9. When the Main Agent calls `research_subagent`, DSH starts a fresh in-process child using the independent Research persona. The child is restricted to `search_knowledge` and `get_resource`, cannot recurse, and shares the active run's bounded eight-action retrieval budget. The Main Agent receives the native child output and remains responsible for the final answer.
 
 ## 9. Student Context Flow
 
@@ -604,6 +670,22 @@ DSH child tool call
 ```
 
 The tool reads a known stable Resource id. It does not create Evidence and therefore cannot add to `StudyTurnResult.evidence`.
+
+### `research_subagent`
+
+```text
+Main Agent tool call with rendered ResearchTask
+  → native DSH `dsh-tool-subagent` / `spawn` provider
+  → fresh child with Research prompt and strong model profile
+  → child can call only `search_knowledge` and `get_resource`
+  → shared authenticated StudyToolBridge and per-run retrieval budget
+  → DSH `subagent.started` / `subagent.finished` notifications
+  → `collectResearchExecutions()` parses ResearchResult
+  → unknown Evidence ids are discarded
+  → Main Agent synthesizes final response
+```
+
+The child may perform multiple retrieval actions; the current product cap is eight per active `StudyRun`. `search_knowledge` contributes metadata-rich LightRAG Evidence to the shared parent snapshot. `get_resource` returns `ResourceText` only. A failed child produces a safe `ResearchResult` limitation and `subagent_failed` metadata without replacing a successful Main Agent answer.
 
 ### `manage_memory`
 
@@ -705,7 +787,7 @@ The pinned DSH packages are `0.1.6-alpha.2` for the SDK client, protocol, sessio
 
 ### Prompt and model mapping
 
-`renderMainStudyAgentPrompt()` keeps system prompt, runtime context, and user prompt separate. The default tool-enabled prompt is `main-study-agent-v3`; it defines the four tools, distinguishes hot-path management from Post-turn Observation, preserves source-type semantics, and requires a successful mutation result before the Agent confirms persistence. Without `toolServices`, the adapter uses the no-tools prompt. `config/main-agent.cordis.patch.yml` sets `personaPrefix` from `MONASH_STUDY_AGENT_SYSTEM_PROMPT` and inserts `./main-agent-tools.mjs`.
+`renderMainStudyAgentPrompt()` keeps system prompt, runtime context, and user prompt separate. The default tool-enabled prompt is `main-study-agent-v4`; it defines the four direct tools plus `research_subagent`, distinguishes hot-path management from Post-turn Observation, preserves source-type semantics, and requires a successful mutation result before the Agent confirms persistence. Without `toolServices`, the adapter uses the no-tools prompt. `config/main-agent.cordis.patch.yml` sets `personaPrefix` from `MONASH_STUDY_AGENT_SYSTEM_PROMPT`, inserts `./main-agent-tools.mjs`, and conditionally inserts the native DSH Research child when the product bridge is enabled.
 
 Product code sees only `fast`/`strong`. The current mapping is:
 
@@ -713,6 +795,8 @@ Product code sees only `fast`/`strong`. The current mapping is:
 | --- | --- | --- |
 | `fast` | `deepseek-official` | `deepseek-v4-flash` |
 | `strong` | `deepseek-official` | `deepseek-v4-pro` |
+
+The native Research entry is `@deepseek-ai/dsh-tool-subagent` with provider `spawn`, `backgroundMode: one-shot`, `maxDepth: 0`, and a `toolFilter.allow` list containing only `search_knowledge` and `get_resource`. Its independent persona is `research-subagent-v1`; the child model route is `deepseek-official/deepseek-v4-pro`. The product adapter consumes DSH `subagent.started` and `subagent.finished` notifications but exposes only safe task/status/count metadata through `AgentEvent`.
 
 ### Cordis boundary
 
@@ -727,10 +811,10 @@ Lifecycle:
 1. `DeepSeekHarnessRuntime` constructs `StudyToolBridge` when `toolServices` is supplied.
 2. Before the first Harness creation, `StudyToolBridge.start()` binds an ephemeral TCP port on `127.0.0.1`, generates a random UUID bearer token, and returns URL/token.
 3. `DeepSeekHarnessRuntime.#createDefaultHarness()` places URL and token in the child environment as `MONASH_STUDY_AGENT_TOOL_BRIDGE_URL` and `MONASH_STUDY_AGENT_TOOL_BRIDGE_TOKEN`.
-4. The DSH plugin reads those variables. If either is absent it registers nothing; otherwise it registers the four tool schemas.
+4. The DSH plugin reads those variables. If either is absent it registers nothing; otherwise it registers the four direct tool schemas. The Cordis patch separately installs the native `research_subagent` tool when `MONASH_STUDY_AGENT_ENABLE_RESEARCH_SUBAGENT=1`.
 5. The child sends `POST /tool` with `Authorization: Bearer <token>` and a JSON `{ name, arguments }` body.
 6. `StudyToolBridge.#handle()` checks method/path, token, request size, JSON shape, and an active run. It dispatches by name and returns `{ ok: true, value }` or a safe error message in a 200 JSON envelope for tool-level failures. Memory service exceptions are reduced to `Memory management failed` before crossing the bridge.
-7. `begin(runId, input)` supplies the current course context and ensures only one Harness turn is active. `snapshot(runId)` returns deduplicated Evidence and tool names. `end(runId)` clears the active context.
+7. `begin(runId, input)` supplies the current course context and ensures only one Harness turn is active. `snapshot(runId)` returns deduplicated Evidence, tool names, and Research retrieval-action count. `end(runId)` clears the active context. The same active-run budget covers direct and Research `search_knowledge`/`get_resource` calls.
 8. `DeepSeekHarnessRuntime.close()` closes cached Harness drivers and the bridge server.
 
 The token is generated at runtime and never committed. The bridge is loopback-only by default. The current `#active` field intentionally rejects concurrent turns; a future concurrent runtime would need an explicit run-scoped registry rather than relaxing this check.
@@ -744,6 +828,9 @@ run_started
 model_started
 model_completed
 answer_completed
+subagent_started
+subagent_completed
+subagent_failed
 memory_observation_started
 memory_observation_completed
 memory_observation_failed
@@ -751,7 +838,7 @@ run_completed
 run_failed
 ```
 
-`StudyController` emits run, observation, and failure events. `DeepSeekHarnessRuntime` emits `model_started`, `model_completed`, and `answer_completed`. Observation completion may include a result count; observation failure uses `MEMORY_OBSERVATION_FAILED`. Payloads contain only `runId`, ISO timestamp, optional session/conversation/turn ids, optional logical model profile, optional count, and optional stable error code. Prompts, model answers, tool arguments, Memory content, Evidence content, and secrets are intentionally not included.
+`StudyController` emits run, observation, and failure events. `DeepSeekHarnessRuntime` emits model events and safe Research lifecycle events after adapting native DSH notifications. Research events include only `subagentName`, `taskId`, Evidence count when available, and `SUBAGENT_FAILED` on failure. Observation completion may include a result count; observation failure uses `MEMORY_OBSERVATION_FAILED`. Payloads contain only `runId`, ISO timestamp, optional session/conversation/turn ids, optional logical model profile, optional count, and optional stable error code. Prompts, model answers, tool arguments, Memory content, Evidence content, child output, and secrets are intentionally not included.
 
 `NoopAgentEventSink` is the normal default; `InMemoryAgentEventSink` records safe events for tests. A future UI or tracing adapter should consume `AgentEventSink` rather than importing DSH event objects.
 
@@ -766,11 +853,13 @@ run_failed
 | `MODEL_ERROR` | Harness returned an empty answer | DSH adapter | Terminates |
 | `HARNESS_ERROR` | DSH could not complete or returned no turn identity | DSH adapter/driver | Terminates |
 | `ABORTED` | Abort signal was already set before execution | DSH adapter | Terminates |
+| `SUBAGENT_FAILED` | Native Research child did not complete successfully | DSH notification adapter | Main Agent answer remains recoverable |
 | `UNKNOWN` | Unclassified failure converted at controller boundary | Controller catch block | Terminates |
 
 `MEMORY_OBSERVATION_FAILED` is an `AgentEvent` lifecycle code rather than a `StudyRuntimeError`: it records a failed post-answer formation attempt while the completed turn continues successfully.
 
 Tool-level failures are caught inside the bridge and returned as a safe tool error envelope to the Harness. They do not automatically throw through the parent runtime. A Post-turn Memory observation failure is also non-fatal after an answer: the Controller emits `memory_observation_failed`, then `run_completed`, and returns the existing `StudyTurnResult`. Memory context builder failures and Knowledge service failures outside a tool call currently propagate and fail the turn; there is no generalized graceful-degradation policy beyond these explicit boundaries.
+Research child failures follow the same recoverability boundary: the adapter emits `subagent_failed`, records a limitation, and preserves the Main Agent's already-produced final answer. A successful child does not bypass Main Agent synthesis.
 
 ## 17. CLI and Scripts
 
@@ -790,6 +879,7 @@ Tool-level failures are caught inside the bridge and returned as a safe tool err
 | `pnpm agent-smoke -- ... --continuity` | Add session continuity check | `scripts/agent-smoke.ts` | DSH session identity |
 | `pnpm agent-tools-smoke` | Real Main Agent tool calling + Evidence propagation | `scripts/agent-tools-smoke.ts` | DSH, bridge, Memory, local Resource reader |
 | `pnpm agent-memory-smoke` | Real Post-turn write, `manage_memory`, and new-session Recall | `scripts/agent-memory-smoke.ts` | DSH, DeepSeek Memory extraction, BGE-M3, temporary SQLite |
+| `pnpm agent-research-smoke` | Real Main Agent → native Research child → multi-step LightRAG retrieval → final synthesis | `scripts/agent-research-smoke.ts` | DSH 0.1.6-alpha.2, LightRAG, local manifest, DeepSeek |
 | `pnpm run typecheck` | Strict no-emit TypeScript check | `tsconfig.json` | TypeScript |
 | `pnpm run build` | Compile package/scripts/services declarations and JS | `tsconfig.build.json` | TypeScript |
 | `pnpm test` | Run all tracked `tests/**/*.test.ts` | `package.json` | `tsx --test` |
@@ -809,6 +899,7 @@ Tool-level failures are caught inside the bridge and returned as a safe tool err
 | `config/sources.local.json` | Machine-specific course roots | Ignored; copy from `sources.example.json` |
 | `.env` / `DEEPSEEK_API_KEY` | Secret for real DeepSeek model calls | Ignored; loaded from repository root |
 | DSH bridge environment | Child-side tool URL/token and prompt | Created only by `DeepSeekHarnessRuntime` |
+| Research retrieval budget | Maximum combined direct/Research bridge retrieval actions per turn | `RESEARCH_SUBAGENT_ACTION_BUDGET = 8` |
 | `services/knowledge-service/.venv` | Project-local Python environment | Ignored; Docling/LightRAG/BGE-M3 dependencies installed locally |
 
 No secret value is part of this reference.
@@ -835,7 +926,7 @@ There is no separate committed migration directory. Migrations are code constant
 
 ### Automated tests
 
-The tracked test suite is organized around normalization, worker protocol, LightRAG state/sync/retrieval, Resource reads, Memory persistence/intelligence, runtime composition, and Main Agent/bridge behavior. The Round 3 baseline passed `pnpm test` with 63 tests passing.
+The tracked test suite is organized around normalization, worker protocol, LightRAG state/sync/retrieval, Resource reads, Memory persistence/intelligence, runtime composition, Main Agent/bridge behavior, and Research Subagent contracts. The current unit/integration suite passed `pnpm test` with 70 tests passing after Round 4 implementation.
 
 ### High-value real smoke coverage
 
@@ -843,6 +934,7 @@ The tracked test suite is organized around normalization, worker protocol, Light
 - `pnpm agent-smoke -- ... --continuity` verifies that the DSH session identity continues a conversation.
 - `pnpm agent-tools-smoke` verifies real Harness tool calls for `recall_memory` and `search_knowledge`, authenticated bridge dispatch, and Evidence propagation to `StudyTurnResult`. The verification fixture asserted Evidence id `smoke-evidence-ORANGE-731`; the smoke also uses the real Memory Service read path and local Resource reader.
 - `pnpm agent-memory-smoke` uses a temporary SQLite database and verifies real DSH answer completion followed by DeepSeek/BGE-M3 Post-turn persistence, a real authenticated `manage_memory` tool call, and baseline Memory Recall in a different Harness session. The temporary database is removed in `finally`.
+- `pnpm agent-research-smoke` requests a complex FIT2109 multi-resource comparison and asserts native `research_subagent` invocation, at least two retrieval actions, Research Evidence ids reaching the final `StudyTurnResult`, and non-empty Main Agent synthesis. It requires explicit authorization to send the selected local course material to the configured DeepSeek endpoint.
 - `pnpm smoke:memory` and `pnpm smoke:lightrag` exercise real provider/runtime boundaries and require the local dependencies/API configuration appropriate to those services.
 
 Unit/integration tests use injected fake Harness drivers, fake LightRAG clients, temporary SQLite stores, and deterministic fixtures where an external provider is not required. The real smoke scripts remain separate from the default `pnpm test` command.
@@ -872,8 +964,8 @@ Unit/integration tests use injected fake Harness drivers, fake LightRAG clients,
 | Post-turn Memory observation | Complete | Awaited structural observer in `StudyController` with non-fatal failure events |
 | Memory management tool | Complete | `manage_memory` → authenticated bridge → `MemoryService.manage()` |
 | Hybrid formation idempotence | Complete | Canonical keys + Resolver; exact same-turn Episode deduplication |
-| Research Subagent | Not implemented | No product subagent implementation |
-| End-to-end multi-agent workflow | Not implemented | DSH capability is not product-wired |
+| Research Subagent | Implemented locally; real external smoke pending authorization | `ResearchTask`/`ResearchResult`, native DSH `research_subagent`, restricted child tools, adapter, safe events |
+| End-to-end multi-agent workflow | Product-wired; real external smoke pending authorization | Main prompt delegation → native child → bounded retrieval → Evidence-backed Main synthesis |
 | React UI | Not implemented | No UI package |
 | Electron shell | Not implemented | No Electron package |
 
@@ -964,6 +1056,14 @@ The repository history is the source of truth for how the current boundaries wer
 - Runtime chains: `StudyTurnResult → StudyPostTurnObserver → MemoryService.observe()` and `DSH manage_memory → authenticated bridge → MemoryService.manage()` converge on the existing Resolver, Lifecycle Manager, Store, embeddings, and SQLite event history.
 - Verification: 63 tests, typecheck, build, real Hybrid Memory smoke, real Main Agent continuity smoke, and existing Agent Tool/Evidence smoke passed. The Hybrid smoke used temporary SQLite and proved a distinct new Harness session recalled the written strategy.
 
+### `3bee2e0309995fd3373de42b1ab5e6490686ea18` — Integrate research subagent runtime
+
+- Purpose: add the smallest product-owned multi-agent path for complex course research while keeping DSH responsible for native child execution.
+- Added `ResearchTask`/`ResearchResult` contracts, an independent Research prompt, Main Agent delegation rules, native `dsh-tool-subagent` configuration, a strong child route, bounded read-only tool filtering, and a shared eight-action retrieval budget.
+- Runtime chain: `Main Agent → research_subagent → native DSH spawn child → search_knowledge/get_resource → ResearchResult adapter → Main Agent synthesis → StudyTurnResult`.
+- Added safe `subagent_started`/`subagent_completed`/`subagent_failed` events, Evidence-id validation, failure recovery, `subagentsUsed`, `researchActions`, unit coverage, and `agent-research-smoke.ts`. The real external smoke remains pending explicit authorization because it uses local course material with DeepSeek.
+- Verification: 70 tests, typecheck, build, and diff check passed. No external smoke or push was performed.
+
 ## 23. Where Do I Change X?
 
 | I want to change... | Start here | Related files |
@@ -989,7 +1089,7 @@ The repository history is the source of truth for how the current boundaries wer
 | Add a SQLite migration | `packages/runtime-database/src/runtime-database.ts` | Schema version, migration tests, service stores |
 | Change post-turn Memory observation | `packages/study-controller/src/study-controller.ts` after runtime completion | `StudyPostTurnObserver`, `MemoryService.observe()`, event/error policy |
 | Change `manage_memory` | `config/main-agent-tools.mjs` and `StudyToolBridge.#execute()` | `StudyMemoryManager`, `MemoryCandidate`, resolver safety tests |
-| Add Research Subagent | Start at `StudyAgentRuntime`/DSH integration boundary | New product-owned orchestration and result contract; no current implementation |
+| Add Research Subagent | `packages/study-core/src/research-subagent.ts` and `packages/dsh-integration/src/research-adapter.ts` | Main prompt, native DSH patch entry, bounded bridge budget, tests, and `agent-research-smoke.ts` |
 
 ## 24. Known Boundaries and Current Limitations
 
@@ -1004,11 +1104,11 @@ The repository history is the source of truth for how the current boundaries wer
 - `resources/resources.json` is a generated snapshot. A durable Resource Catalog is still planned.
 - LightRAG index state and Memory share the SQLite file but not domain ownership or retrieval logic.
 - Real provider smokes require local Python environments and, where applicable, `DEEPSEEK_API_KEY`; they are intentionally separate from the default unit test command.
-- Research Subagent, end-to-end multi-agent orchestration, React UI, and Electron are not implemented.
+- The Research Subagent implementation is present, but the real Round 4 smoke has not been run in this verification because it would send local course material to the configured external DeepSeek endpoint without explicit authorization. React UI and Electron remain unimplemented.
 
-## 25. Next Planned Integration Point
+## 25. Round 4 Research Integration Boundary
 
-The next planned round is **Round 4 — Research Subagent**. The product boundary should start from the existing `StudyAgentRuntime` / DeepSeek Harness integration and return a structured research result to the Main Agent:
+The implemented Round 4 boundary starts from the existing `StudyAgentRuntime` / DeepSeek Harness integration and returns a structured research result to the Main Agent:
 
 ```text
 Main Study Agent
@@ -1019,7 +1119,7 @@ Main Study Agent
   → Main Study Agent synthesis
 ```
 
-Round 4 should preserve the current ownership model: Harness owns subagent execution, Knowledge Service owns retrieval and Evidence construction, Main Study Agent owns delegation and final synthesis, and Memory remains available through the established structural read/write capabilities. No product Research Subagent implementation exists at this verified commit.
+Round 4 preserves the current ownership model: Harness owns subagent execution, Knowledge Service owns retrieval and Evidence construction, Main Study Agent owns delegation and final synthesis, and Memory remains outside the Research child. The implementation is bounded to one native child task at a time with no recursive delegation and eight combined retrieval actions per active turn. The real smoke remains an explicit operational authorization step because it uses local course content with DeepSeek.
 
 ## Maintenance Protocol
 
