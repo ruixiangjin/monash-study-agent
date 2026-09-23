@@ -150,10 +150,12 @@ test('Cordis patch gives the native Research Subagent only bounded read-only too
   const patch = readFileSync(resolve(process.cwd(), 'config/main-agent.cordis.patch.yml'), 'utf8')
   const researchConfig = patch.slice(patch.indexOf('name: \'@deepseek-ai/dsh-tool-subagent\''))
   assert.match(researchConfig, /toolName: research_subagent/)
-  assert.match(researchConfig, /maxDepth: 0/)
+  assert.match(researchConfig, /maxDepth: 1/)
   assert.match(researchConfig, /- search_knowledge/)
   assert.match(researchConfig, /- get_resource/)
   assert.doesNotMatch(researchConfig, /- (?:recall_memory|manage_memory|research_subagent)/)
+  assert.match(patch, /- id: tool-subagent\n  disabled: true/)
+  assert.match(patch, /- id: tool-subagent-fork\n  disabled: true/)
 })
 
 test('Research Subagent has a bounded read-only retrieval budget', async () => {

@@ -205,10 +205,10 @@ export class StudyToolBridge {
 }
 
 function consumeResearchAction(active: ActiveRun, maximum: number): void {
-  active.researchActions += 1
-  if (active.researchActions > maximum) {
+  if (active.researchActions >= maximum) {
     throw new Error('Research retrieval action budget exhausted')
   }
+  active.researchActions += 1
 }
 
 function memoryManagementCommand(

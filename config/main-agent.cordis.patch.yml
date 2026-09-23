@@ -7,6 +7,18 @@
     includeRuntimeContext: false
     personaPrefix: !!js process.env.MONASH_STUDY_AGENT_SYSTEM_PROMPT
 
+# The base profile also exposes generic delegation tools. Disable them so the
+# product has one explicit delegation route and cannot silently fall back to a
+# different subagent contract during Research smoke or production turns.
+- id: tool-subagent-control
+  disabled: true
+- id: tool-subagent-list-agents
+  disabled: true
+- id: tool-subagent
+  disabled: true
+- id: tool-subagent-fork
+  disabled: true
+
 - insert:
     - id: monash-study-agent-tools
       name: './main-agent-tools.mjs'
@@ -22,7 +34,9 @@
         toolName: research_subagent
         enableRunInBackground: false
         backgroundMode: one-shot
-        maxDepth: 0
+        # The Main Agent is depth 0; allow exactly this one child level.
+        # toolFilter prevents the child from seeing any delegation tool.
+        maxDepth: 1
         persona: !!js process.env.MONASH_STUDY_AGENT_RESEARCH_SYSTEM_PROMPT
         agentOptions:
           provider: deepseek-official
