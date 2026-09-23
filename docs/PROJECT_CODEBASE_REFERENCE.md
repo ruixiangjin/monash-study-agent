@@ -12,7 +12,7 @@ Actual implementation:
 → this document
 
 Last verified commit:
-`3bee2e0309995fd3373de42b1ab5e6490686ea18`
+`f17f583fce328b9aacdc5e10ef199c30a5994a9f`
 
 Branch at verification:
 `feature/agent-tools-context`
@@ -97,7 +97,7 @@ Main Agent decides from the task prompt
 native DSH research_subagent tool
         │ fresh in-process child; strong logical model
         │ toolFilter = search_knowledge, get_resource
-        │ maxDepth = 0; one bounded read-only task
+        │ maxDepth = 1; one bounded read-only task
         ▼
 Research Subagent
         │ repeated retrieval actions, up to 8 per StudyRun
@@ -796,7 +796,7 @@ Product code sees only `fast`/`strong`. The current mapping is:
 | `fast` | `deepseek-official` | `deepseek-v4-flash` |
 | `strong` | `deepseek-official` | `deepseek-v4-pro` |
 
-The native Research entry is `@deepseek-ai/dsh-tool-subagent` with provider `spawn`, `backgroundMode: one-shot`, `maxDepth: 0`, and a `toolFilter.allow` list containing only `search_knowledge` and `get_resource`. Its independent persona is `research-subagent-v1`; the child model route is `deepseek-official/deepseek-v4-pro`. The product adapter consumes DSH `subagent.started` and `subagent.finished` notifications but exposes only safe task/status/count metadata through `AgentEvent`.
+The native Research entry is `@deepseek-ai/dsh-tool-subagent` with provider `spawn`, `backgroundMode: one-shot`, `maxDepth: 1`, and a `toolFilter.allow` list containing only `search_knowledge` and `get_resource`. The base profile's generic `subagent`, `subagent_fork`, control, and list-agents rows are disabled in the product patch, so Main Agent delegation cannot silently fall back to another child contract. Its independent persona is `research-subagent-v1`; the child model route is `deepseek-official/deepseek-v4-pro`. The product adapter consumes DSH `subagent.started` and `subagent.finished` notifications but exposes only safe task/status/count metadata through `AgentEvent`.
 
 ### Cordis boundary
 
@@ -934,7 +934,7 @@ The tracked test suite is organized around normalization, worker protocol, Light
 - `pnpm agent-smoke -- ... --continuity` verifies that the DSH session identity continues a conversation.
 - `pnpm agent-tools-smoke` verifies real Harness tool calls for `recall_memory` and `search_knowledge`, authenticated bridge dispatch, and Evidence propagation to `StudyTurnResult`. The verification fixture asserted Evidence id `smoke-evidence-ORANGE-731`; the smoke also uses the real Memory Service read path and local Resource reader.
 - `pnpm agent-memory-smoke` uses a temporary SQLite database and verifies real DSH answer completion followed by DeepSeek/BGE-M3 Post-turn persistence, a real authenticated `manage_memory` tool call, and baseline Memory Recall in a different Harness session. The temporary database is removed in `finally`.
-- `pnpm agent-research-smoke` requests a complex FIT2109 multi-resource comparison and asserts native `research_subagent` invocation, at least two retrieval actions, Research Evidence ids reaching the final `StudyTurnResult`, and non-empty Main Agent synthesis. It requires explicit authorization to send the selected local course material to the configured DeepSeek endpoint.
+- `pnpm agent-research-smoke` was run with explicit authorization on 2026-09-22. It verified native `research_subagent` completion, 8 bounded retrieval actions, both `search_knowledge` and `get_resource`, 25 LightRAG Evidence items in the final result, and non-empty Main Agent synthesis. The smoke used the existing ignored LightRAG runtime database/cache; it created no separate temporary data requiring cleanup. An initial authorized run exposed the incorrect depth-0 setting and generic fallback; the corrected run is the result recorded here.
 - `pnpm smoke:memory` and `pnpm smoke:lightrag` exercise real provider/runtime boundaries and require the local dependencies/API configuration appropriate to those services.
 
 Unit/integration tests use injected fake Harness drivers, fake LightRAG clients, temporary SQLite stores, and deterministic fixtures where an external provider is not required. The real smoke scripts remain separate from the default `pnpm test` command.
@@ -964,8 +964,8 @@ Unit/integration tests use injected fake Harness drivers, fake LightRAG clients,
 | Post-turn Memory observation | Complete | Awaited structural observer in `StudyController` with non-fatal failure events |
 | Memory management tool | Complete | `manage_memory` → authenticated bridge → `MemoryService.manage()` |
 | Hybrid formation idempotence | Complete | Canonical keys + Resolver; exact same-turn Episode deduplication |
-| Research Subagent | Implemented locally; real external smoke pending authorization | `ResearchTask`/`ResearchResult`, native DSH `research_subagent`, restricted child tools, adapter, safe events |
-| End-to-end multi-agent workflow | Product-wired; real external smoke pending authorization | Main prompt delegation → native child → bounded retrieval → Evidence-backed Main synthesis |
+| Research Subagent | Complete; real smoke passed | `ResearchTask`/`ResearchResult`, native DSH `research_subagent`, restricted child tools, adapter, safe events |
+| End-to-end multi-agent workflow | Complete; real smoke passed | Main prompt delegation → native child → bounded retrieval → Evidence-backed Main synthesis |
 | React UI | Not implemented | No UI package |
 | Electron shell | Not implemented | No Electron package |
 
@@ -1061,8 +1061,13 @@ The repository history is the source of truth for how the current boundaries wer
 - Purpose: add the smallest product-owned multi-agent path for complex course research while keeping DSH responsible for native child execution.
 - Added `ResearchTask`/`ResearchResult` contracts, an independent Research prompt, Main Agent delegation rules, native `dsh-tool-subagent` configuration, a strong child route, bounded read-only tool filtering, and a shared eight-action retrieval budget.
 - Runtime chain: `Main Agent → research_subagent → native DSH spawn child → search_knowledge/get_resource → ResearchResult adapter → Main Agent synthesis → StudyTurnResult`.
-- Added safe `subagent_started`/`subagent_completed`/`subagent_failed` events, Evidence-id validation, failure recovery, `subagentsUsed`, `researchActions`, unit coverage, and `agent-research-smoke.ts`. The real external smoke remains pending explicit authorization because it uses local course material with DeepSeek.
-- Verification: 70 tests, typecheck, build, and diff check passed. No external smoke or push was performed.
+- Added safe `subagent_started`/`subagent_completed`/`subagent_failed` events, Evidence-id validation, failure recovery, `subagentsUsed`, `researchActions`, unit coverage, and `agent-research-smoke.ts`.
+
+### `f17f583fce328b9aacdc5e10ef199c30a5994a9f` — Harden native research smoke path
+
+- Purpose: enforce one explicit native Research delegation route after the first authorized smoke exposed a `maxDepth: 0` rejection and a possible generic-subagent fallback.
+- Disabled the base generic delegation rows, set the native child depth cap to one Main-Agent child level, strengthened smoke assertions for completed/no-failed lifecycle and both read tools, and corrected the retrieval-action counter to cap successful actions at eight.
+- Verification: typecheck, build, 70 tests, and the authorized real `pnpm run agent-research-smoke` passed. The smoke recorded `subagentsUsed = [research]`, 8 research actions, `search_knowledge` + `get_resource`, 25 LightRAG Evidence items, and final synthesis.
 
 ## 23. Where Do I Change X?
 
@@ -1104,7 +1109,7 @@ The repository history is the source of truth for how the current boundaries wer
 - `resources/resources.json` is a generated snapshot. A durable Resource Catalog is still planned.
 - LightRAG index state and Memory share the SQLite file but not domain ownership or retrieval logic.
 - Real provider smokes require local Python environments and, where applicable, `DEEPSEEK_API_KEY`; they are intentionally separate from the default unit test command.
-- The Research Subagent implementation is present, but the real Round 4 smoke has not been run in this verification because it would send local course material to the configured external DeepSeek endpoint without explicit authorization. React UI and Electron remain unimplemented.
+- The real Round 4 smoke passed under explicit authorization using only the required FIT2109 research inputs. It used the existing ignored LightRAG runtime database/cache and created no separate temporary data requiring cleanup. React UI and Electron remain unimplemented.
 
 ## 25. Round 4 Research Integration Boundary
 
@@ -1119,7 +1124,7 @@ Main Study Agent
   → Main Study Agent synthesis
 ```
 
-Round 4 preserves the current ownership model: Harness owns subagent execution, Knowledge Service owns retrieval and Evidence construction, Main Study Agent owns delegation and final synthesis, and Memory remains outside the Research child. The implementation is bounded to one native child task at a time with no recursive delegation and eight combined retrieval actions per active turn. The real smoke remains an explicit operational authorization step because it uses local course content with DeepSeek.
+Round 4 preserves the current ownership model: Harness owns subagent execution, Knowledge Service owns retrieval and Evidence construction, Main Study Agent owns delegation and final synthesis, and Memory remains outside the Research child. The implementation is bounded to one native child task at a time with no recursive delegation and eight combined retrieval actions per active turn. The authorized real smoke passed on 2026-09-22 with 8 actions and 25 LightRAG Evidence items reaching the final result.
 
 ## Maintenance Protocol
 
