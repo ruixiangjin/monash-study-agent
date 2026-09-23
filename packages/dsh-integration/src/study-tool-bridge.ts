@@ -8,15 +8,19 @@ import type {
   StudyTurnInput,
   StudentMemoryContext,
 } from '@monash-study/study-core'
+import { RESEARCH_SUBAGENT_ACTION_BUDGET } from '@monash-study/study-core'
 
 export interface StudyToolBridgeOptions {
   readonly services: StudyAgentToolServices
   readonly host?: string
+  /** Shared per-StudyRun cap for Knowledge retrieval actions, including child research. */
+  readonly maxResearchActions?: number
 }
 
 export interface StudyToolRunSnapshot {
   readonly evidence: readonly Evidence[]
   readonly toolsUsed: readonly string[]
+  readonly researchActions: number
 }
 
 interface ActiveRun {
@@ -24,6 +28,7 @@ interface ActiveRun {
   readonly input: StudyTurnInput
   readonly evidence: Map<string, Evidence>
   readonly toolsUsed: Set<string>
+  researchActions: number
 }
 
 interface ToolRequest {
@@ -35,6 +40,7 @@ interface ToolRequest {
 export class StudyToolBridge {
   readonly #services: StudyAgentToolServices
   readonly #host: string
+  readonly #maxResearchActions: number
   #server: Server | undefined
   #url: string | undefined
   #token: string | undefined
@@ -43,6 +49,7 @@ export class StudyToolBridge {
   constructor(options: StudyToolBridgeOptions) {
     this.#services = options.services
     this.#host = options.host ?? '127.0.0.1'
+    this.#maxResearchActions = options.maxResearchActions ?? RESEARCH_SUBAGENT_ACTION_BUDGET
   }
 
   async start(): Promise<{ readonly url: string; readonly token: string }> {
@@ -78,14 +85,15 @@ export class StudyToolBridge {
     if (this.#active !== undefined) {
       throw new Error('Study tool bridge does not support concurrent Harness turns')
     }
-    this.#active = { runId, input, evidence: new Map(), toolsUsed: new Set() }
+    this.#active = { runId, input, evidence: new Map(), toolsUsed: new Set(), researchActions: 0 }
   }
 
   snapshot(runId: string): StudyToolRunSnapshot {
-    if (this.#active?.runId !== runId) return { evidence: [], toolsUsed: [] }
+    if (this.#active?.runId !== runId) return { evidence: [], toolsUsed: [], researchActions: 0 }
     return {
       evidence: [...this.#active.evidence.values()],
       toolsUsed: [...this.#active.toolsUsed],
+      researchActions: this.#active.researchActions,
     }
   }
 
@@ -136,6 +144,7 @@ export class StudyToolBridge {
     switch (request.name) {
       case 'search_knowledge': {
         if (this.#services.knowledgeService === undefined) throw new Error('Knowledge search is unavailable')
+        consumeResearchAction(active, this.#maxResearchActions)
         const query = requiredString(args, 'query')
         const course = optionalString(args, 'course') ?? active.input.courseContext?.courseCode
         if (course === undefined) throw new Error('search_knowledge requires a course')
@@ -152,6 +161,7 @@ export class StudyToolBridge {
       }
       case 'get_resource': {
         if (this.#services.resourceReader === undefined) throw new Error('Resource reading is unavailable')
+        consumeResearchAction(active, this.#maxResearchActions)
         const resourceId = requiredString(args, 'resourceId')
         return await this.#services.resourceReader.readText(resourceId)
       }
@@ -191,6 +201,13 @@ export class StudyToolBridge {
       default:
         throw new Error(`Unknown Study Agent tool: ${request.name}`)
     }
+  }
+}
+
+function consumeResearchAction(active: ActiveRun, maximum: number): void {
+  active.researchActions += 1
+  if (active.researchActions > maximum) {
+    throw new Error('Research retrieval action budget exhausted')
   }
 }
 

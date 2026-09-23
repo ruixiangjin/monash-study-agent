@@ -83,6 +83,8 @@ export class StudyController {
         modelProfile,
         evidence: result.evidence ?? [],
         toolsUsed: result.toolsUsed ?? [],
+        subagentsUsed: result.subagentsUsed ?? [],
+        researchActions: result.researchActions ?? 0,
       }
       await this.#observeCompletedTurn(normalizedInput, completed, eventSink)
       await emit(eventSink, event(runId, 'run_completed', {

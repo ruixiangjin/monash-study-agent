@@ -10,3 +10,25 @@
 - insert:
     - id: monash-study-agent-tools
       name: './main-agent-tools.mjs'
+
+    # Product Research Subagent: native DSH one-shot child with a fresh
+    # conversation, a strong logical model route, no recursive delegation,
+    # and only the two read-only course-research tools.
+    - id: monash-study-agent-research-subagent
+      name: '@deepseek-ai/dsh-tool-subagent'
+      disabled: !!js process.env.MONASH_STUDY_AGENT_ENABLE_RESEARCH_SUBAGENT !== '1'
+      config:
+        provider: spawn
+        toolName: research_subagent
+        enableRunInBackground: false
+        backgroundMode: one-shot
+        maxDepth: 0
+        persona: !!js process.env.MONASH_STUDY_AGENT_RESEARCH_SYSTEM_PROMPT
+        agentOptions:
+          provider: deepseek-official
+          model: deepseek-v4-pro
+          maxTokens: 8192
+        toolFilter:
+          allow:
+            - search_knowledge
+            - get_resource

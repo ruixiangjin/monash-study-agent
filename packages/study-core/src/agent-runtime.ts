@@ -10,8 +10,8 @@ import type {
 } from '@monash-study/shared-types'
 import type { CourseContext } from './prompts/main-study-agent-prompt.js'
 
-/** The first stable Main Agent task understood by ModelPolicy. */
-export type ModelTask = 'main_agent'
+/** Logical tasks understood by ModelPolicy. Provider model names stay outside this layer. */
+export type ModelTask = 'main_agent' | 'research_agent'
 
 /** Logical model choices exposed to product code. Provider names stay outside this layer. */
 export type ModelProfile = 'fast' | 'strong'
@@ -144,10 +144,13 @@ export type AgentEventType =
   | 'memory_observation_started'
   | 'memory_observation_completed'
   | 'memory_observation_failed'
+  | 'subagent_started'
+  | 'subagent_completed'
+  | 'subagent_failed'
   | 'run_completed'
   | 'run_failed'
 
-export type AgentEventErrorCode = StudyRuntimeErrorCode | 'MEMORY_OBSERVATION_FAILED'
+export type AgentEventErrorCode = StudyRuntimeErrorCode | 'MEMORY_OBSERVATION_FAILED' | 'SUBAGENT_FAILED'
 
 /** Product-owned event shape; raw prompts, responses, and secrets are intentionally absent. */
 export interface AgentEvent {
@@ -159,6 +162,9 @@ export interface AgentEvent {
   readonly turnId?: string
   readonly modelProfile?: ModelProfile
   readonly resultCount?: number
+  readonly evidenceCount?: number
+  readonly subagentName?: string
+  readonly taskId?: string
   readonly errorCode?: AgentEventErrorCode
 }
 
@@ -219,6 +225,9 @@ export interface StudyTurnResult {
   readonly promptVersion: string
   readonly evidence: readonly Evidence[]
   readonly toolsUsed: readonly string[]
+  readonly subagentsUsed: readonly string[]
+  /** Safe count of Knowledge/Resource retrieval actions in this StudyRun. */
+  readonly researchActions: number
 }
 
 /** Runtime abstraction consumed by StudyController. */
@@ -234,8 +243,9 @@ export interface ModelPolicy {
 /** Round 1 policy: every Main Agent turn uses the fast logical profile. */
 export class DefaultModelPolicy implements ModelPolicy {
   selectModel(task: ModelTask): ModelProfile {
-    if (task !== 'main_agent') throw new Error(`Unsupported model task: ${task}`)
-    return 'fast'
+    if (task === 'main_agent') return 'fast'
+    if (task === 'research_agent') return 'strong'
+    throw new Error(`Unsupported model task: ${task}`)
   }
 }
 

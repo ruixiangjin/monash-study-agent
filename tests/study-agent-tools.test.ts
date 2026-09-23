@@ -76,6 +76,8 @@ test('StudyController injects built Student Context without coupling to MemorySe
     promptVersion: MAIN_STUDY_AGENT_PROMPT_VERSION,
     evidence: [],
     toolsUsed: [],
+    subagentsUsed: [],
+    researchActions: 0,
   }
   const controller = new StudyController({
     async runTurn(input) {
@@ -192,6 +194,7 @@ test('StudyToolBridge executes read and manage tools while keeping Memory result
     assert.deepEqual(bridge.snapshot('run-1'), {
       evidence: [evidence],
       toolsUsed: ['search_knowledge', 'get_resource', 'recall_memory', 'manage_memory'],
+      researchActions: 2,
     })
   } finally {
     bridge.end('run-1')
@@ -234,7 +237,7 @@ test('StudyToolBridge validates DELETE intent and returns safe Memory failures',
     })
     assert.deepEqual(failed, { ok: false, error: { message: 'Memory management failed' } })
     assert.equal(JSON.stringify(failed).includes('DEEPSEEK_API_KEY'), false)
-    assert.deepEqual(bridge.snapshot('run-delete'), { evidence: [], toolsUsed: ['manage_memory'] })
+    assert.deepEqual(bridge.snapshot('run-delete'), { evidence: [], toolsUsed: ['manage_memory'], researchActions: 0 })
   } finally {
     bridge.end('run-delete')
     await bridge.close()

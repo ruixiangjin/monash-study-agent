@@ -4,11 +4,13 @@ import { randomUUID } from 'node:crypto'
 import { resolve } from 'node:path'
 
 import { DeepSeekHarness } from '@deepseek-ai/dsh-sdk-client'
-import type { DeepSeekHarnessOptions } from '@deepseek-ai/dsh-sdk-client'
+import type { DeepSeekHarnessOptions, HarnessNotification } from '@deepseek-ai/dsh-sdk-client'
 import {
   MAIN_STUDY_AGENT_PROMPT_VERSION,
   MAIN_STUDY_AGENT_NO_TOOLS_SYSTEM_PROMPT,
   MAIN_STUDY_AGENT_SYSTEM_PROMPT,
+  RESEARCH_SUBAGENT_NAME,
+  RESEARCH_SUBAGENT_SYSTEM_PROMPT,
   NoopAgentEventSink,
   renderMainStudyAgentPrompt,
   StudyRuntimeError,
@@ -22,6 +24,7 @@ import {
   type StudyTurnResult,
 } from '@monash-study/study-core'
 import { StudyToolBridge, type StudyToolRunSnapshot } from './study-tool-bridge.js'
+import { collectResearchExecutions } from './research-adapter.js'
 
 export interface DeepSeekHarnessSession {
   run(input: string): Promise<DeepSeekHarnessRunResult>
@@ -36,6 +39,7 @@ export interface DeepSeekHarnessRunResult {
   readonly sessionId: string
   readonly finalResponse: string
   readonly events: readonly unknown[]
+  readonly notifications?: readonly HarnessNotification[]
 }
 
 export interface DeepSeekHarnessRuntimeOptions {
@@ -102,7 +106,7 @@ export class DeepSeekHarnessRuntime implements StudyAgentRuntime {
       )
     }
 
-    let toolSnapshot: StudyToolRunSnapshot = { evidence: [], toolsUsed: [] }
+    let toolSnapshot: StudyToolRunSnapshot = { evidence: [], toolsUsed: [], researchActions: 0 }
     this.#toolBridge?.begin(runId, input)
     await emit(eventSink, event(runId, 'model_started', modelProfile))
     try {
@@ -120,9 +124,37 @@ export class DeepSeekHarnessRuntime implements StudyAgentRuntime {
         // The current DSH SDK exposes one durable session identity for a conversation.
         conversationId: result.sessionId,
       }
+      toolSnapshot = this.#toolBridge?.snapshot(runId) ?? toolSnapshot
+      const research = collectResearchExecutions({
+        runId,
+        rootSessionId: conversation.sessionId,
+        ...(input.courseContext?.courseCode === undefined ? {} : { course: input.courseContext.courseCode }),
+        events: result.events,
+        notifications: result.notifications ?? [],
+        evidence: toolSnapshot.evidence,
+      })
+      for (const execution of research.executions) {
+        await emit(eventSink, event(runId, 'subagent_started', modelProfile, conversation.sessionId, conversation.conversationId, turnId, {
+          subagentName: RESEARCH_SUBAGENT_NAME,
+          taskId: execution.task.taskId,
+        }))
+        await emit(eventSink, event(
+          runId,
+          execution.status === 'completed' ? 'subagent_completed' : 'subagent_failed',
+          modelProfile,
+          conversation.sessionId,
+          conversation.conversationId,
+          turnId,
+          {
+            subagentName: RESEARCH_SUBAGENT_NAME,
+            taskId: execution.task.taskId,
+            ...(execution.result === undefined ? {} : { evidenceCount: execution.result.evidenceIds.length }),
+            ...(execution.status === 'completed' ? {} : { errorCode: 'SUBAGENT_FAILED' }),
+          },
+        ))
+      }
       await emit(eventSink, event(runId, 'model_completed', modelProfile, conversation.sessionId, conversation.conversationId, turnId))
       await emit(eventSink, event(runId, 'answer_completed', modelProfile, conversation.sessionId, conversation.conversationId, turnId))
-      toolSnapshot = this.#toolBridge?.snapshot(runId) ?? toolSnapshot
       return {
         runId,
         answer: result.finalResponse,
@@ -132,6 +164,8 @@ export class DeepSeekHarnessRuntime implements StudyAgentRuntime {
         promptVersion: MAIN_STUDY_AGENT_PROMPT_VERSION,
         evidence: toolSnapshot.evidence,
         toolsUsed: toolSnapshot.toolsUsed,
+        subagentsUsed: research.subagentsUsed,
+        researchActions: toolSnapshot.researchActions,
       }
     } catch (error) {
       if (error instanceof StudyRuntimeError) throw error
@@ -171,6 +205,8 @@ export class DeepSeekHarnessRuntime implements StudyAgentRuntime {
     const env = {
       ...(this.#harnessOptions.env ?? process.env),
       MONASH_STUDY_AGENT_SYSTEM_PROMPT: this.#systemPrompt,
+      MONASH_STUDY_AGENT_RESEARCH_SYSTEM_PROMPT: RESEARCH_SUBAGENT_SYSTEM_PROMPT,
+      ...(this.#toolBridge === undefined ? {} : { MONASH_STUDY_AGENT_ENABLE_RESEARCH_SUBAGENT: '1' }),
       ...(bridge === undefined ? {} : {
         MONASH_STUDY_AGENT_TOOL_BRIDGE_URL: bridge.url,
         MONASH_STUDY_AGENT_TOOL_BRIDGE_TOKEN: bridge.token,
@@ -204,6 +240,7 @@ function event(
   sessionId?: string,
   conversationId?: string,
   turnId?: string,
+  details: Partial<Pick<AgentEvent, 'subagentName' | 'taskId' | 'resultCount' | 'evidenceCount' | 'errorCode'>> = {},
 ): AgentEvent {
   return {
     runId,
@@ -213,6 +250,7 @@ function event(
     ...(sessionId === undefined ? {} : { sessionId }),
     ...(conversationId === undefined ? {} : { conversationId }),
     ...(turnId === undefined ? {} : { turnId }),
+    ...details,
   }
 }
 

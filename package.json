@@ -8,6 +8,7 @@
     "build": "tsc -p tsconfig.build.json",
     "agent-smoke": "tsx scripts/agent-smoke.ts",
     "agent-memory-smoke": "tsx scripts/agent-memory-smoke.ts",
+    "agent-research-smoke": "tsx scripts/agent-research-smoke.ts",
     "agent-tools-smoke": "tsx scripts/agent-tools-smoke.ts",
     "check": "pnpm run typecheck",
     "lightrag": "tsx scripts/lightrag.ts",
