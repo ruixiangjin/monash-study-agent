@@ -3,6 +3,7 @@ import { test } from 'node:test'
 
 import type { AgentEvent, StudyTurnResult } from '@monash-study/study-core'
 import { TYPERT_REMOTE } from '../packages/dsh-integration/src/remote.js'
+import { LazyStudyApplication } from '../packages/dsh-integration/src/ui-service.js'
 import { inject, registerMonashStudySlots } from '../packages/dsh-ui-plugin/src/client/registration.js'
 import {
   ACTIVITY_LABELS,
@@ -95,6 +96,37 @@ test('publishes the three UI Remote endpoints with native Typert transport', () 
   assert.equal(TYPERT_REMOTE.descriptors[2]?.mode, 'stream')
   assert.ok(inject.includes('remote'))
   assert.ok(inject.includes('slots'))
+})
+
+test('creates one shared StudyApplication lazily and closes it idempotently', async () => {
+  let createCount = 0
+  let closeCount = 0
+  const application = {
+    runTurn: async () => { throw new Error('not used') },
+    close: async () => { closeCount += 1 },
+  }
+  const lazy = new LazyStudyApplication(async () => {
+    createCount += 1
+    return application
+  })
+
+  assert.equal(createCount, 0)
+  assert.equal(await lazy.get(), application)
+  assert.equal(await lazy.get(), application)
+  assert.equal(createCount, 1)
+  await Promise.all([lazy.close(), lazy.close()])
+  assert.equal(closeCount, 1)
+  await assert.rejects(lazy.get(), /closed/)
+})
+
+test('disposing before the first turn does not create StudyApplication', async () => {
+  let createCount = 0
+  const lazy = new LazyStudyApplication(async () => {
+    createCount += 1
+    throw new Error('must not run')
+  })
+  await lazy.close()
+  assert.equal(createCount, 0)
 })
 
 test('registers the Monash page in the sidebar and keyed main slot, then disposes both', async () => {

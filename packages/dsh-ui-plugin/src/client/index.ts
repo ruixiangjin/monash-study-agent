@@ -88,21 +88,38 @@ class RemoteStudyClient implements StudyClient {
 export { inject }
 
 export async function apply(ctx: Context): Promise<() => Promise<void>> {
-  const disposeRemote = await ctx.remote.$mount(monashStudyRemote)
-  const client = new RemoteStudyClient(ctx.remote.monashStudy)
-  const style = document.createElement('style')
-  style.dataset.plugin = '@monash-study/dsh-ui-plugin'
-  style.textContent = STYLES
-  document.head.append(style)
-  const disposeSlots = registerMonashStudySlots(
-    ctx,
-    ({ size }: { readonly size?: number }) => createElement(IconListPenOutline16, { size }),
-    (props: PropsRuntime<'main'>) => createElement(MonashStudyPage, { ...props, client }),
-  )
-  return async () => {
-    disposeSlots()
-    style.remove()
-    await disposeRemote()
+  try {
+    const disposeRemote = await ctx.remote.$mount(monashStudyRemote)
+    const ui = ctx.inject(['slots', 'layout', 'remote.monashStudy', 'locale'], (scope) => {
+      const client = new RemoteStudyClient(scope.remote.monashStudy)
+      const style = document.createElement('style')
+      style.dataset.plugin = '@monash-study/dsh-ui-plugin'
+      style.textContent = STYLES
+      document.head.append(style)
+      const disposeSlots = registerMonashStudySlots(
+        scope,
+        ({ size }: { readonly size?: number }) => createElement(IconListPenOutline16, { size }),
+        (props: PropsRuntime<'main'>) => createElement(MonashStudyPage, { ...props, client }),
+      )
+      return () => {
+        disposeSlots()
+        style.remove()
+      }
+    })
+    try {
+      await ui
+    } catch (error) {
+      await ui.dispose()
+      await disposeRemote()
+      throw error
+    }
+    return async () => {
+      await ui.dispose()
+      await disposeRemote()
+    }
+  } catch (error) {
+    console.error('monash-study-ui client activation failed', error)
+    throw error
   }
 }
 

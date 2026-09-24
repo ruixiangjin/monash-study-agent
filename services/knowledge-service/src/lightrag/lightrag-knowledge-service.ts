@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto'
+import { resolve } from 'node:path'
 
 import type { Evidence, NormalizedDocument } from '@monash-study/shared-types'
 import type { KnowledgeQuery, KnowledgeService } from '@monash-study/study-core'
@@ -39,10 +40,14 @@ export class LightRAGKnowledgeService implements KnowledgeService {
   readonly #runtimeConfig: LoadedRuntimeConfig
 
   constructor(options: LightRAGKnowledgeServiceOptions = {}) {
-    this.#client = options.client ?? new LightRAGWorkerClient()
-    this.#loader = options.loader ?? new NormalizedDocumentLoader()
-    this.#stateStore = options.stateStore ?? new LightRAGIndexStateStore()
     this.#runtimeConfig = loadRuntimeConfig(options.configPath)
+    this.#client = options.client ?? new LightRAGWorkerClient({ configPath: this.#runtimeConfig.configPath })
+    this.#loader = options.loader ?? new NormalizedDocumentLoader({
+      normalizedRoot: resolve(this.#runtimeConfig.repositoryRoot, 'data/normalized'),
+    })
+    this.#stateStore = options.stateStore ?? new LightRAGIndexStateStore({
+      configPath: this.#runtimeConfig.configPath,
+    })
   }
 
   async search(query: KnowledgeQuery): Promise<readonly Evidence[]> {

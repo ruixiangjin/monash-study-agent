@@ -5,7 +5,7 @@
   "description": "Local-first Monash learning agent product powered by DeepSeek Harness",
   "type": "module",
   "scripts": {
-    "build": "tsc -p tsconfig.build.json && pnpm --filter @monash-study/dsh-ui-plugin bundle",
+    "build": "tsc -p tsconfig.build.json && pnpm --filter @monash-study/dsh-ui-plugin bundle && pnpm run ui:verify-package",
     "agent-smoke": "tsx scripts/agent-smoke.ts",
     "agent-memory-smoke": "tsx scripts/agent-memory-smoke.ts",
     "agent-research-smoke": "tsx scripts/agent-research-smoke.ts",
@@ -17,7 +17,10 @@
     "smoke:lightrag": "tsx scripts/smoke-lightrag.ts",
     "smoke:memory": "tsx scripts/memory-smoke.ts",
     "test": "tsx --test tests/**/*.test.ts",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "ui": "node --import tsx/esm scripts/ui.ts",
+    "ui:setup": "node --import tsx/esm scripts/ui-setup.ts",
+    "ui:verify-package": "node --import tsx/esm scripts/verify-dsh-ui-package.ts"
   },
   "engines": {
     "node": "^22.19.0 || >=24.0.0"

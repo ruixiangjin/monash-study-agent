@@ -4,7 +4,8 @@ import { fileURLToPath } from 'node:url'
 
 const DSH_CLIENT_EXTERNALS = /^@deepseek-ai\//
 const PRODUCT_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..')
-const COMPILED_INTEGRATION = resolve(PRODUCT_ROOT, 'lib/packages/dsh-integration/src/index.js')
+const COMPILED_UI_HOST = resolve(PRODUCT_ROOT, 'lib/packages/dsh-integration/src/ui-host.js')
+const COMPILED_RUNTIME = resolve(PRODUCT_ROOT, 'lib/packages/dsh-integration/src/deepseek-harness-runtime.js')
 
 /** Build the Node Host half and the DSH closure-factory browser bundle. */
 export default defineConfig([
@@ -21,7 +22,9 @@ export default defineConfig([
     plugins: [{
       name: 'monash-study-compiled-host-boundary',
       resolveId(source: string) {
-        return source === '@monash-study/dsh-integration' ? COMPILED_INTEGRATION : null
+        if (source === '@monash-study/dsh-integration/ui-host') return COMPILED_UI_HOST
+        if (source === '@monash-study/dsh-integration') return COMPILED_RUNTIME
+        return null
       },
     }],
     deps: {

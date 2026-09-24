@@ -1,6 +1,6 @@
 import { readFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
-import { Context } from '@deepseek-ai/cordis'
+import type { Context } from '@deepseek-ai/cordis'
 import { Remote, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
 import { loadRuntimeConfig } from '@monash-study/knowledge-service'
 import {
@@ -28,30 +28,30 @@ export interface MonashStudyUiConfig {
 export class MonashStudyUiService extends TypertRemoteService {
   static inject: string[] = []
 
-  readonly #applicationPromise: Promise<StudyApplication>
-  readonly #manifestPath: string
-  readonly #events = new Map<string, RunEventQueue>()
+  private readonly application: LazyStudyApplication
+  private readonly manifestPath: string
+  private readonly runtimeConfigPath: string | undefined
+  private readonly events = new Map<string, RunEventQueue>()
 
   constructor(ctx: Context, config: MonashStudyUiConfig = {}) {
     super(ctx, 'monashStudyUi', { namespace: 'monashStudy' })
+    this.runtimeConfigPath = config.runtimeConfigPath
     const runtimeConfig = loadRuntimeConfig(config.runtimeConfigPath)
-    this.#manifestPath = config.resourceManifestPath
+    this.manifestPath = config.resourceManifestPath
       ?? resolve(runtimeConfig.repositoryRoot, 'resources/resources.json')
-    this.#applicationPromise = createStudyApplication({
-      ...(config.runtimeConfigPath === undefined ? {} : { configPath: config.runtimeConfigPath }),
-      resourceManifestPath: this.#manifestPath,
-    })
-    ctx.effect(() => async () => {
-      await this.#applicationPromise.then(application => application.close(), () => undefined)
-    }, 'monash-study-ui: StudyApplication lifecycle')
+    this.application = new LazyStudyApplication(() => createStudyApplication({
+      ...(this.runtimeConfigPath === undefined ? {} : { configPath: this.runtimeConfigPath }),
+      resourceManifestPath: this.manifestPath,
+    }))
+    ctx.effect(() => () => this.close(), 'monash-study-ui: StudyApplication lifecycle')
   }
 
   /** Execute one stable StudyApplication turn and return a safe UI projection. */
   @Remote
   async runTurn(request: MonashStudyTurnRequest, signal: AbortSignal): Promise<MonashStudyTurnResponse> {
-    const queue = this.#queue(request.runId)
+    const queue = this.queue(request.runId)
     try {
-      const application = await this.#applicationPromise
+      const application = await this.application.get()
       const result = await application.runTurn({
         query: request.query,
         courseContext: { courseCode: request.courseCode },
@@ -63,11 +63,12 @@ export class MonashStudyUiService extends TypertRemoteService {
       })
       return { status: 'completed', result }
     } catch (error) {
+      console.error('monash-study-ui StudyApplication turn failed', error)
       const runtimeError = toStudyRuntimeError(error, 'UNKNOWN')
       return { status: 'failed', errorCode: runtimeError.code, message: safeMessage(runtimeError) }
     } finally {
       queue.complete()
-      this.#scheduleCleanup(request.runId, queue)
+      this.scheduleCleanup(request.runId, queue)
     }
   }
 
@@ -75,7 +76,7 @@ export class MonashStudyUiService extends TypertRemoteService {
   @Remote
   async listCourses(signal: AbortSignal): Promise<readonly CourseSummary[]> {
     signal.throwIfAborted()
-    const manifest = JSON.parse(await readFile(this.#manifestPath, 'utf8')) as ResourceManifest
+    const manifest = JSON.parse(await readFile(this.manifestPath, 'utf8')) as ResourceManifest
     return Object.entries(manifest.statistics.byCourse)
       .filter(([courseCode]) => courseCode.trim().length > 0)
       .map(([courseCode, resourceCount]) => ({ courseCode, resourceCount }))
@@ -85,22 +86,52 @@ export class MonashStudyUiService extends TypertRemoteService {
   /** Stream one run's safe AgentEvent values over DSH's native Remote transport. */
   @Remote({ mode: 'stream' })
   async *runEvents(runId: string, signal: AbortSignal): AsyncIterable<AgentEvent> {
-    yield* this.#queue(runId).iterate(signal)
+    yield* this.queue(runId).iterate(signal)
   }
 
-  #queue(runId: string): RunEventQueue {
-    const existing = this.#events.get(runId)
+  /** Dispose the shared Application if a turn caused it to be created. */
+  close(): Promise<void> {
+    return this.application.close()
+  }
+
+  private queue(runId: string): RunEventQueue {
+    const existing = this.events.get(runId)
     if (existing !== undefined) return existing
     const queue = new RunEventQueue()
-    this.#events.set(runId, queue)
+    this.events.set(runId, queue)
     return queue
   }
 
-  #scheduleCleanup(runId: string, queue: RunEventQueue): void {
+  private scheduleCleanup(runId: string, queue: RunEventQueue): void {
     const timer = setTimeout(() => {
-      if (this.#events.get(runId) === queue) this.#events.delete(runId)
+      if (this.events.get(runId) === queue) this.events.delete(runId)
     }, 60_000)
     timer.unref?.()
+  }
+}
+
+/** One shared, lazily-created Application with an idempotent lifecycle. */
+export class LazyStudyApplication {
+  #applicationPromise: Promise<StudyApplication> | undefined
+  #closePromise: Promise<void> | undefined
+  #closed = false
+
+  constructor(readonly create: () => Promise<StudyApplication>) {}
+
+  get(): Promise<StudyApplication> {
+    if (this.#closed) return Promise.reject(new Error('Monash Study UI service is closed.'))
+    this.#applicationPromise ??= this.create()
+    return this.#applicationPromise
+  }
+
+  close(): Promise<void> {
+    if (this.#closePromise !== undefined) return this.#closePromise
+    this.#closed = true
+    const applicationPromise = this.#applicationPromise
+    this.#closePromise = applicationPromise === undefined
+      ? Promise.resolve()
+      : applicationPromise.then(application => application.close(), () => undefined)
+    return this.#closePromise
   }
 }
 
