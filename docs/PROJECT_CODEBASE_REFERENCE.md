@@ -11,8 +11,8 @@ Memory design intent:
 Actual implementation:
 → this document
 
-Last verified commit:
-`bc42a00a34587d038a9f3dfd467b61a3e5cdd286`
+Last verified commit before the Round 1 UI changes:
+`3d25fa6bcb675599f726531bc108bf78e3bb8b9e`
 
 Branch at verification:
 `feature/agent-tools-context`
@@ -35,7 +35,8 @@ The current runtime foundation is:
 - `@monash-study/knowledge-service`: Resource discovery, normalization, LightRAG worker boundary, indexing state, and Evidence retrieval.
 - `@monash-study/memory-service`: long-term student Memory persistence, candidate extraction, deterministic resolution, embedding, recall, and lifecycle.
 - `@monash-study/study-application`: the single outer composition root and UI-facing `StudyApplication` contract; it wires real or injected providers and owns shutdown.
-- `@monash-study/dsh-integration`: Cordis registration, the published DeepSeek Harness adapter, and the authenticated tool bridge.
+- `@monash-study/dsh-integration`: Cordis registration, the published DeepSeek Harness adapter, the authenticated tool bridge, and the DSH UI Host/Remote boundary.
+- `@monash-study/dsh-ui-plugin`: the DSH bundle entry, browser page, slot registration, and UI presentation mapping.
 
 The stable Main Agent path now includes baseline Student Context, direct Knowledge/Resource/Memory tools, an optional native Research Subagent, a final answer, and awaited Post-turn Memory Observation. `manage_memory` provides deliberate hot-path formation during the Harness loop; the successful completed-turn path supplies the same `MemoryService` with a system-triggered observation. Research delegation is bounded and read-only: the child can use only `search_knowledge` and `get_resource`, and the Main Agent remains responsible for final synthesis. The outer `StudyApplication` is the only application composition root: it wires these capabilities, enforces an idempotent shutdown path, and exposes no raw Harness result types to the UI. All paths reuse the existing product-owned services and SQLite state.
 
@@ -189,6 +190,7 @@ monash-study-agent/
 ├── docs/
 │   ├── README.md              Unified project documentation index
 │   ├── PROJECT_CODEBASE_REFERENCE.md  Verified implementation reference
+│   ├── UI_IMPLEMENTATION_REFERENCE.md  DSH 0.1.6-alpha.2 UI/API findings and Round 1 contract
 │   ├── architecture.md        Concise implementation architecture notes
 │   ├── identity-contract.md   Stable identity algorithms
 │   ├── Commit Message Guidelines.md  Commit subject/body convention
@@ -200,7 +202,8 @@ monash-study-agent/
 │   ├── study-core/            Provider-neutral capabilities, Main Agent, and Research contracts
 │   ├── study-controller/      Product turn orchestration
 │   ├── study-application/     Outer composition root and stable application contract
-│   └── dsh-integration/       Cordis, Harness, and Research adapter boundary
+│   ├── dsh-integration/       Cordis, Harness, Research adapter, and UI Remote boundary
+│   └── dsh-ui-plugin/         DSH bundle entry, browser page, and slot registration
 ├── resources/
 │   └── resources.json         Generated Resource Manifest snapshot
 ├── scripts/                   CLI and smoke entry points, including Research smoke
@@ -265,9 +268,17 @@ The tables below cover the tracked TypeScript and Python implementation, the pro
 | `packages/dsh-integration/src/deepseek-harness-runtime.ts` | Maps product runtime to published DSH SDK, manages profiles/sessions, native Research lifecycle events, prompt patch, and tool bridge | `DeepSeekHarnessRuntime`, Harness driver/session/result contracts | DSH SDK, study-core, `StudyToolBridge`, Research adapter | Agent smokes, application |
 | `packages/dsh-integration/src/research-adapter.ts` | Maps native DSH child notifications and outputs into validated product Research executions | `collectResearchExecutions`, `ResearchExecutionSnapshot` | DSH-shaped notifications, study-core Research contracts, Evidence | `DeepSeekHarnessRuntime`, tests |
 | `packages/dsh-integration/src/study-tool-bridge.ts` | Authenticated loopback bridge for read/write tools, safe mutation results, per-run Evidence/tool metadata, and bounded Research retrieval actions | `StudyToolBridge`, `StudyToolRunSnapshot` | Node HTTP, shared Evidence, structural study-core services | `DeepSeekHarnessRuntime`, native child |
-| `packages/dsh-integration/src/plugin.ts` | Cordis registration and product runtime service | `MonashStudyKnowledgeService`, `apply`, plugin `name` | Cordis, `createStudyRuntime` | DSH profile/patch |
+| `packages/dsh-integration/src/ui-contract.ts` | Stable UI request/response and course summary types | `CourseSummary`, `MonashStudyTurnRequest`, `MonashStudyTurnResponse`, `MonashStudyAgentEvent` | study-core DTOs | UI Host service, Remote contribution, browser plugin |
+| `packages/dsh-integration/src/ui-service.ts` | Shared application Host service, course listing, turn execution, and AgentEvent stream | `MonashStudyUiService` | Cordis, Typert, StudyApplication, ResourceManifest | DSH profile and browser Remote |
+| `packages/dsh-integration/src/remote.ts` | Typert Remote descriptors and strict boundary codecs | `TYPERT_REMOTE` | Typert protocol, zod, UI contract | `dsh-ui-plugin` browser client |
+| `packages/dsh-integration/src/plugin.ts` | Cordis registration and product runtime services | `MonashStudyKnowledgeService`, `MonashStudyUiService`, `apply`, plugin `name` | Cordis, `createStudyRuntime`, `StudyApplication` | DSH profile/patch |
 | `packages/dsh-integration/src/tools/local-resource-tool.ts` | Local resource-reader shape for future tool composition | `LocalResourceTool` | Shared Resource types | Future tool registry |
 | `packages/dsh-integration/src/index.ts` | DSH package public barrel | DSH exports | Adapter files | Root scripts |
+| `packages/dsh-ui-plugin/package.json` | DSH host bundle patch and browser injection metadata | `dsh.bundle.patch`, `dsh.client.inject` | Pinned DSH UI packages | DSH web profile |
+| `packages/dsh-ui-plugin/src/index.ts` | Host half of the UI bundle | `apply`, `name`, `Config` | `dsh-integration` | DSH bundle loader |
+| `packages/dsh-ui-plugin/src/client/index.ts` | Three-column browser page and Remote client | `apply`, `inject` | DSH slots/layout/primitives, UI Remote | DSH browser loader |
+| `packages/dsh-ui-plugin/src/client/registration.ts` | Keyed `main` and sidebar slot registration | `registerMonashStudySlots`, `inject` | DSH slot contract | Browser entry, UI tests |
+| `packages/dsh-ui-plugin/src/client/presenters.ts` | Safe AgentEvent/Evidence/error presentation mapping | `toActivityItem`, `toEvidenceCards`, `errorLabel` | study-core and UI contract types | Browser page, UI tests |
 | `config/main-agent-tools.mjs` | Child-side declarations for `search_knowledge`, `get_resource`, `recall_memory`, and `manage_memory` | `name`, `inject`, `apply` | DSH tool injection surface, bridge env | Patched DSH child |
 | `config/main-agent.cordis.patch.yml` | Disables Harness identity/runtime prompt injection, supplies product prompts, inserts Main tools and native bounded Research child | `system-prompt`, `monash-study-agent-tools`, `monash-study-agent-research-subagent` patch entries | DSH patch format | `DeepSeekHarnessRuntime` |
 
@@ -394,6 +405,7 @@ shared-types + runtime-database
 knowledge-service ──implements──> study-core.KnowledgeService
 study-controller ──composes─────> knowledge-service
 dsh-integration ──adapts────────> study-controller + study-core
+dsh-ui-plugin ──uses────────────> dsh-integration Remote + DSH client UI slots
 ```
 
 More precisely:
@@ -406,6 +418,7 @@ More precisely:
 - `knowledge-service` implements the `KnowledgeService` interface and imports study-core only for that interface, preserving the controller boundary.
 - `memory-service` is not a dependency of `study-controller` or `dsh-integration` at package level. Integration uses the structural `StudyMemoryReader`, `StudyMemoryManager`, and `StudyPostTurnObserver` capabilities; one `MemoryService` instance can satisfy all three without moving Memory policy into orchestration packages.
 - `dsh-integration` is the only source package importing Cordis/DeepSeek Harness. The DSH child sees only `config/main-agent-tools.mjs`; the product parent owns actual service calls.
+- `dsh-ui-plugin` is a separate bundle package. Its Host half delegates to `dsh-integration`; its browser half mounts the same Typert Remote contribution and registers the `monash-study` sidebar/main slots. It does not own StudyApplication or provider logic.
 - Ed and Moodle connectors currently depend on the `StudyTool` abstraction only. They do not yet own live downloader synchronization in this repository.
 
 ## 7. Core Interfaces
@@ -820,7 +833,12 @@ The pinned DSH `0.1.6-alpha.2` types/documentation expose no reliable wire-level
 
 ### Cordis boundary
 
-`packages/dsh-integration/src/plugin.ts` registers `MonashStudyKnowledgeService` as `ctx.monashStudyKnowledge`. Its `StudyRuntime` defaults to `LightRAGKnowledgeService` from `config/runtime.json`. Product domain packages do not import Cordis, and Harness response types do not cross into `shared-types` or `study-core`.
+`packages/dsh-integration/src/plugin.ts` registers `MonashStudyUiService` as `ctx.monashStudyUi`. The service owns one shared `StudyApplication` instance, exposes `monashStudy/runTurn`, `monashStudy/listCourses`, and the native `monashStudy/runEvents` stream, and closes the application through the Cordis lifecycle. Product domain packages do not import Cordis, and Harness response types do not cross into `shared-types`, `study-core`, or the UI.
+
+The DSH findings and the full Round 1 UI contract are recorded in
+[`UI_IMPLEMENTATION_REFERENCE.md`](./UI_IMPLEMENTATION_REFERENCE.md). The
+browser package uses the DSH slot system rather than a parallel React router:
+`sidebar.panellist.id` and `main.key` are both `monash-study`.
 
 ## 14. Tool Bridge and Authentication Mechanism
 
@@ -950,7 +968,7 @@ There is no separate committed migration directory. Migrations are code constant
 
 ### Automated tests
 
-The tracked test suite is organized around normalization, worker protocol, LightRAG state/sync/retrieval, Resource reads, Memory persistence/intelligence, runtime composition, Main Agent/bridge behavior, and Research Subagent contracts. The current unit/integration suite passed with 78 tests passing after Round 5 implementation. The new `tests/study-application.test.ts` covers direct composition, real MemoryService with temporary SQLite, Student Context/Post-turn failure recovery, Research success/failure propagation, concurrent runs, cleanup, and idempotent close.
+The tracked test suite is organized around normalization, worker protocol, LightRAG state/sync/retrieval, Resource reads, Memory persistence/intelligence, runtime composition, Main Agent/bridge behavior, Research Subagent contracts, and DSH UI boundary behavior. Round 1 adds `tests/dsh-ui-plugin.test.ts` for AgentEvent mapping, Evidence metadata preservation, stable error labels, Typert descriptors, and sidebar/main registration disposal.
 
 ### High-value real smoke coverage
 
@@ -991,7 +1009,7 @@ Unit/integration tests use injected fake Harness drivers, fake LightRAG clients,
 | Research Subagent | Complete; real smoke passed | `ResearchTask`/`ResearchResult`, native DSH `research_subagent`, restricted child tools, adapter, safe events |
 | End-to-end multi-agent workflow | Complete; real smoke passed | Main prompt delegation → native child → bounded retrieval → Evidence-backed Main synthesis |
 | Backend composition and contract freeze | Complete; Round 5 integration matrix passed | `createStudyApplication`, stable UI contract, failure policy, concurrency/cleanup, safe model payloads |
-| React UI | Not implemented | No UI package |
+| DSH React UI plugin | Complete for Round 1 | `packages/dsh-ui-plugin`, `packages/dsh-integration/src/ui-service.ts`, `tests/dsh-ui-plugin.test.ts` |
 | Electron shell | Not implemented | No Electron package |
 
 ## 22. Development History
@@ -1122,6 +1140,9 @@ The repository history is the source of truth for how the current boundaries wer
 | Change Memory persistence | `services/memory-service/src/memory-store.ts` | `runtime-database.ts`, shared Memory types |
 | Change Memory extraction | `services/memory-service/src/deepseek-memory-candidate-extractor.ts` | DeepSeek provider, candidate contract |
 | Change DSH integration | `packages/dsh-integration/src/deepseek-harness-runtime.ts` | Prompt patch, child tools, bridge |
+| Change the DSH UI Host boundary | `packages/dsh-integration/src/ui-service.ts` and `src/ui-contract.ts` | `StudyApplication`, course summaries, UI error/event contract, `src/remote.ts` |
+| Change the DSH Study page layout | `packages/dsh-ui-plugin/src/client/index.ts` | DSH slots/layout/primitives, `src/client/presenters.ts`, `UI_IMPLEMENTATION_REFERENCE.md` |
+| Change DSH navigation identity or lifecycle | `packages/dsh-ui-plugin/src/client/registration.ts` and `packages/dsh-ui-plugin/src/index.ts` | `cordis.patch.yml`, UI integration tests |
 | Add an Agent event | `packages/study-core/src/agent-runtime.ts` | Controller/DSH emission sites, event tests |
 | Add a CLI command | Root `package.json` and a file under `scripts/` | Package entry exports and tests |
 | Add a SQLite migration | `packages/runtime-database/src/runtime-database.ts` | Schema version, migration tests, service stores |
@@ -1145,7 +1166,8 @@ The repository history is the source of truth for how the current boundaries wer
 - `resources/resources.json` is a generated snapshot. A durable Resource Catalog is still planned.
 - LightRAG index state and Memory share the SQLite file but not domain ownership or retrieval logic.
 - Real provider smokes require local Python environments and, where applicable, `DEEPSEEK_API_KEY`; they are intentionally separate from the default unit test command.
-- The real Round 4 smoke passed under explicit authorization using only the required FIT2109 research inputs. It used the existing ignored LightRAG runtime database/cache and created no separate temporary data requiring cleanup. React UI and Electron remain unimplemented.
+- The real Round 4 smoke passed under explicit authorization using only the required FIT2109 research inputs. It used the existing ignored LightRAG runtime database/cache and created no separate temporary data requiring cleanup. Electron remains unimplemented.
+- The Round 1 DSH UI is implemented in the separate `dsh-ui-plugin` package. A real web-profile run still depends on the local DSH profile, course manifest, and model configuration; the automated UI checks cover the Remote, mapping, and slot-registration boundaries.
 
 ## 25. Round 4 Research Integration Boundary
 
@@ -1176,6 +1198,17 @@ UI
 `createStudyApplication()` is the single outer composition root. It can construct the real LightRAG, Local Resource, MemoryService, and DeepSeek Harness path, or accept injected fakes for deterministic tests. The UI contract is frozen at `StudyTurnInput`, `StudyTurnResult`, `AgentEventSink`, and stable runtime error codes; raw DSH sessions, notifications, bridge tokens, tool arguments, Memory store internals, and provider exceptions remain behind the boundary.
 
 The Round 5 integration matrix passed with 78/78 tests, strict typecheck, and production build. It covers direct turns, Knowledge/Resource/Memory tool failure envelopes, Student Context fallback, awaited Post-turn success/failure, Research success/failure recovery, one-active-run concurrency, bridge/runtime cleanup, idempotent close, safe model-facing projections, and temporary SQLite cleanup. The authorized real external course-data smoke remains the Round 4 FIT2109 Research smoke; Round 5's additional integration tests intentionally use fake providers and temporary local state to verify policy without sending additional course content.
+
+### Round 1 DSH UI Plugin
+
+Round 1 implements the first DSH browser surface on top of the frozen backend
+contract. It adds a shared `MonashStudyUiService`, strict Typert Remote
+descriptors, the `monash-study` sidebar/main route identity, per-course
+conversation state, activity/evidence/error mapping, and the three-column
+Courses/Chat/Evidence page. The UI-specific integration tests pass together
+with strict typecheck and production build. The real DSH web-profile flow
+remains a local runtime verification step because it depends on the user's
+course manifest and model configuration.
 
 ## Maintenance Protocol
 

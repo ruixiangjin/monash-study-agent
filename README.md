@@ -44,7 +44,8 @@ monash-study-agent/
 │   ├── runtime-database/      Shared SQLite connection and migrations
 │   ├── study-core/            Knowledge, decision, model, and tool capabilities
 │   ├── study-controller/      Study workflow orchestration interface
-│   └── dsh-integration/       Cordis service and future DSH tool registration
+│   ├── dsh-integration/       Cordis, Harness, and UI Remote boundary
+│   └── dsh-ui-plugin/         DSH browser page and slot registration
 ├── services/
 │   ├── knowledge-service/     Discovery, normalization, Docling, and LightRAG seam
 │   └── memory-service/        Long-term Memory schema and deterministic store
@@ -101,7 +102,7 @@ LightRAG index state and long-term Memory share `data/runtime/monash-study-agent
 
 ## Runtime integration
 
-`packages/dsh-integration` is the only module that imports Cordis and is also the Harness-specific adapter boundary. It registers `ctx.monashStudyKnowledge` through the product-owned `StudyRuntime` composition boundary, whose default knowledge provider is LightRAG, and exposes `DeepSeekHarnessRuntime` for the Main Agent path. Product code selects logical `fast`/`strong` profiles; the adapter maps them to the pinned DSH provider/model route and keeps Harness response types out of `shared-types` and `study-core`. Round 2 tool calls run in the DSH child through `config/main-agent-tools.mjs`, cross a loopback bearer-token bridge, and execute product-owned Knowledge, Resource, and Memory capabilities in the parent process. Retrieved Evidence is deduplicated by `evidenceId` and returned in `StudyTurnResult`; the bridge does not own Knowledge or Memory persistence.
+`packages/dsh-integration` is the only module that imports Cordis and is also the Harness-specific adapter boundary. It registers the backward-compatible `ctx.monashStudyKnowledge` service and the Round 1 `ctx.monashStudyUi` service. The UI service owns one shared `StudyApplication` and exposes the Typert Remote turn, course-list, and AgentEvent stream contract. `packages/dsh-ui-plugin` mounts that Remote and contributes the `monash-study` sidebar/main slots. Product code selects logical `fast`/`strong` profiles; the adapter maps them to the pinned DSH provider/model route and keeps Harness response types out of `shared-types` and `study-core`. Round 2 tool calls run in the DSH child through `config/main-agent-tools.mjs`, cross a loopback bearer-token bridge, and execute product-owned Knowledge, Resource, and Memory capabilities in the parent process. Retrieved Evidence is deduplicated by `evidenceId` and returned in `StudyTurnResult`; the bridge does not own Knowledge or Memory persistence.
 
 ## Next architecture stages
 

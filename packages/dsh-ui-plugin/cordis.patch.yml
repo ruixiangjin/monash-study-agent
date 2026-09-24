@@ -1,0 +1,6 @@
+- insert:
+    - id: monash-study-ui
+      name: '@monash-study/dsh-ui-plugin'
+      config:
+        runtimeConfigPath: !!js process.env.MONASH_STUDY_AGENT_RUNTIME_CONFIG
+        resourceManifestPath: !!js process.env.MONASH_STUDY_AGENT_RESOURCE_MANIFEST

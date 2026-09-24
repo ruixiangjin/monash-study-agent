@@ -5,7 +5,7 @@
   "description": "Local-first Monash learning agent product powered by DeepSeek Harness",
   "type": "module",
   "scripts": {
-    "build": "tsc -p tsconfig.build.json",
+    "build": "tsc -p tsconfig.build.json && pnpm --filter @monash-study/dsh-ui-plugin bundle",
     "agent-smoke": "tsx scripts/agent-smoke.ts",
     "agent-memory-smoke": "tsx scripts/agent-memory-smoke.ts",
     "agent-research-smoke": "tsx scripts/agent-research-smoke.ts",
