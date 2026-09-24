@@ -17,6 +17,7 @@ import type {
   MonashStudyTurnRequest,
   MonashStudyTurnResponse,
 } from './ui-contract.js'
+import { InProcessDshRuntime } from './in-process-dsh-runtime.js'
 
 /** Configuration supplied by the DSH profile for the UI integration. */
 export interface MonashStudyUiConfig {
@@ -26,7 +27,7 @@ export interface MonashStudyUiConfig {
 
 /** High-level UI boundary; DSH-specific transport stays outside StudyApplication. */
 export class MonashStudyUiService extends TypertRemoteService {
-  static inject: string[] = []
+  static inject = ['monashStudyRuntime']
 
   private readonly application: LazyStudyApplication
   private readonly manifestPath: string
@@ -42,6 +43,7 @@ export class MonashStudyUiService extends TypertRemoteService {
     this.application = new LazyStudyApplication(() => createStudyApplication({
       ...(this.runtimeConfigPath === undefined ? {} : { configPath: this.runtimeConfigPath }),
       resourceManifestPath: this.manifestPath,
+      runtimeFactory: toolServices => ctx.monashStudyRuntime.configure(toolServices),
     }))
     ctx.effect(() => () => this.close(), 'monash-study-ui: StudyApplication lifecycle')
   }

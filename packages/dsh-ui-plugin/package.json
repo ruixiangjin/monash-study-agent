@@ -1,6 +1,6 @@
 {
   "name": "@monash-study/dsh-ui-plugin",
-  "version": "0.1.0",
+  "version": "0.2.1",
   "private": true,
   "type": "module",
   "main": "./lib/index.js",
@@ -14,6 +14,7 @@
       "types": "./lib/types/client/index.d.ts",
       "default": "./lib/client.js"
     },
+    "./agent-plugin": "./lib/agent-plugin.js",
     "./src/*": "./src/*",
     "./package.json": "./package.json"
   },
@@ -21,6 +22,7 @@
     "lib/index.js",
     "lib/client.js",
     "lib/client.js.map",
+    "lib/agent-plugin.js",
     "lib/types/**/*.d.ts",
     "cordis.patch.yml"
   ],

@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process'
-import { mkdir, readFile, readdir, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, readdir, unlink, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 
@@ -7,14 +7,22 @@ import { resolveUiPaths, verifyUiPaths } from './ui-paths.js'
 import { verifyDshUiPackage } from './verify-dsh-ui-package.js'
 
 const paths = resolveUiPaths()
+const dshHome = join(homedir(), '.dsh')
+const webProfile = join(dshHome, 'profiles/web')
+
 await verifyUiPaths(paths)
 await run('pnpm', ['run', 'build'], paths.productRoot)
 
 const packageDirectory = join(paths.productRoot, 'packages/dsh-ui-plugin')
 await verifyDshUiPackage(packageDirectory)
 await allowDshRuntimeBuilds()
-const packDirectory = join(homedir(), '.dsh/monash-study-agent/packages')
+const packDirectory = join(dshHome, 'monash-study-agent/packages')
 await mkdir(packDirectory, { recursive: true })
+for (const name of await readdir(packDirectory)) {
+  if (name.startsWith('monash-study-dsh-ui-plugin-') && name.endsWith('.tgz')) {
+    await unlink(join(packDirectory, name))
+  }
+}
 
 await run('pnpm', ['pack', '--pack-destination', packDirectory], packageDirectory)
 const archiveNames = (await readdir(packDirectory)).filter(name => name.endsWith('.tgz'))
@@ -22,13 +30,10 @@ if (archiveNames.length !== 1) throw new Error(`Expected one UI plugin tarball; 
 const archivePath = join(packDirectory, archiveNames[0] as string)
 await run(process.execPath, [paths.dshLauncher, 'plugin', '--profile', 'web', 'add', archivePath], paths.dshRoot)
 
-const installedPackage = join(homedir(), '.dsh/profiles/web/node_modules/@monash-study/dsh-ui-plugin')
-const result = await verifyDshUiPackage(installedPackage)
-const workspaceSettings = await readFile(join(homedir(), '.dsh/profiles/web/pnpm-workspace.yaml'), 'utf8')
-if (!/^nodeLinker:\s*hoisted$/mu.test(workspaceSettings) || !/^autoInstallPeers:\s*false$/mu.test(workspaceSettings)) {
-  throw new Error('Web profile must keep nodeLinker: hoisted and autoInstallPeers: false.')
-}
-process.stdout.write(`Monash Study UI profile installed. Host externals: ${result.hostExternals.join(', ')}\n`)
+const installedPackage = join(webProfile, 'node_modules/@monash-study/dsh-ui-plugin')
+await verifyDshUiPackage(installedPackage)
+await verifyProfile(webProfile, 'Web')
+process.stdout.write('Monash Study UI setup ready\n')
 
 async function run(command: string, args: readonly string[], cwd: string): Promise<void> {
   const child = spawn(command, args, { cwd, env: process.env, stdio: 'inherit' })
@@ -40,7 +45,7 @@ async function run(command: string, args: readonly string[], cwd: string): Promi
 }
 
 async function allowDshRuntimeBuilds(): Promise<void> {
-  const workspacePath = join(homedir(), '.dsh/profiles/web/pnpm-workspace.yaml')
+  const workspacePath = join(webProfile, 'pnpm-workspace.yaml')
   const packages = [
     '@deepseek-ai/dsh-subprocess-local',
     '@google/genai',
@@ -57,4 +62,12 @@ async function allowDshRuntimeBuilds(): Promise<void> {
     else source = `${source.trimEnd()}\n  ${quotedKey}: true\n`
   }
   await writeFile(workspacePath, source)
+}
+
+async function verifyProfile(profileDirectory: string, label: string): Promise<void> {
+  await readFile(join(profileDirectory, 'package.json'), 'utf8')
+  const workspaceSettings = await readFile(join(profileDirectory, 'pnpm-workspace.yaml'), 'utf8')
+  if (!/^nodeLinker:\s*hoisted$/mu.test(workspaceSettings) || !/^autoInstallPeers:\s*false$/mu.test(workspaceSettings)) {
+    throw new Error(`${label} profile must keep nodeLinker: hoisted and autoInstallPeers: false.`)
+  }
 }

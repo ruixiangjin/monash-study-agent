@@ -102,6 +102,17 @@ export class StudyToolBridge {
     if (this.#active?.runId === runId) this.#active = undefined
   }
 
+  /** Execute a tool in-process for the Agent that owns the active Study turn. */
+  async executeDirect(name: string, args: unknown): Promise<unknown> {
+    const active = this.#active
+    if (active === undefined) throw new Error('No active Study Agent turn')
+    active.toolsUsed.add(name)
+    return this.#execute({
+      name,
+      ...(args === undefined ? {} : { arguments: args }),
+    }, active)
+  }
+
   async close(): Promise<void> {
     this.#active = undefined
     const server = this.#server

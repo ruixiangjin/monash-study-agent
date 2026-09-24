@@ -1,0 +1,9 @@
+# Product runtime overlay: expose the Monash preset to the one DSH Web host.
+- id: agent-presets
+  config:
+    default: monash-study-agent
+    roots:
+      - path: !!js process.env.MONASH_STUDY_AGENT_PRESET_ROOT
+        trust: system
+    includeShippedRoot: true
+    includeUserRoot: true

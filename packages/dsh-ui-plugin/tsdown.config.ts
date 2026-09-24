@@ -6,6 +6,7 @@ const DSH_CLIENT_EXTERNALS = /^@deepseek-ai\//
 const PRODUCT_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..')
 const COMPILED_UI_HOST = resolve(PRODUCT_ROOT, 'lib/packages/dsh-integration/src/ui-host.js')
 const COMPILED_RUNTIME = resolve(PRODUCT_ROOT, 'lib/packages/dsh-integration/src/deepseek-harness-runtime.js')
+const COMPILED_AGENT_PLUGIN = resolve(PRODUCT_ROOT, 'lib/packages/dsh-integration/src/agent-plugin/index.js')
 
 /** Build the Node Host half and the DSH closure-factory browser bundle. */
 export default defineConfig([
@@ -27,6 +28,21 @@ export default defineConfig([
         return null
       },
     }],
+    deps: {
+      neverBundle: (specifier: string) => specifier.startsWith('@deepseek-ai/'),
+      alwaysBundle: (specifier: string) => specifier.startsWith('@monash-study/'),
+    },
+  },
+  {
+    name: '@monash-study/dsh-ui-plugin/agent-plugin',
+    entry: { 'agent-plugin': COMPILED_AGENT_PLUGIN },
+    outDir: 'lib',
+    format: ['esm'],
+    platform: 'node',
+    target: 'es2023',
+    fixedExtension: false,
+    dts: false,
+    clean: false,
     deps: {
       neverBundle: (specifier: string) => specifier.startsWith('@deepseek-ai/'),
       alwaysBundle: (specifier: string) => specifier.startsWith('@monash-study/'),

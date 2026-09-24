@@ -1,6 +1,7 @@
 export * from './plugin.js'
 export * from './ui-contract.js'
 export * from './deepseek-harness-runtime.js'
+export * from './in-process-dsh-runtime.js'
 export * from './study-tool-bridge.js'
 export * from './research-adapter.js'
 export * from './tools/local-resource-tool.js'

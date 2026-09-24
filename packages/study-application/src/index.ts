@@ -60,6 +60,8 @@ export interface StudyApplicationOptions {
   readonly memoryManager?: StudyMemoryManager | null
   readonly toolServices?: StudyAgentToolServices
   readonly runtime?: StudyAgentRuntime
+  /** Build the runtime after the product tool services have been composed. */
+  readonly runtimeFactory?: (toolServices: StudyAgentToolServices) => StudyAgentRuntime
   readonly harness?: DeepSeekHarnessDriver
   readonly createHarness?: DeepSeekHarnessRuntimeOptions['createHarness']
   readonly harnessOptions?: DeepSeekHarnessRuntimeOptions['harnessOptions']
@@ -111,7 +113,7 @@ export async function createStudyApplication(
     ...(memoryReader === null || memoryReader === undefined ? {} : { memoryReader }),
     ...(memoryManager === null || memoryManager === undefined ? {} : { memoryManager }),
   }
-  const runtime = options.runtime ?? new DeepSeekHarnessRuntime({
+  const runtime = options.runtime ?? options.runtimeFactory?.(toolServices) ?? new DeepSeekHarnessRuntime({
     ...(options.harness === undefined ? {} : { harness: options.harness }),
     ...(options.createHarness === undefined ? {} : { createHarness: options.createHarness }),
     ...(options.harnessOptions === undefined ? {} : { harnessOptions: options.harnessOptions }),
