@@ -12,7 +12,7 @@ Actual implementation:
 → this document
 
 Last verified commit:
-`f17f583fce328b9aacdc5e10ef199c30a5994a9f`
+`bc42a00a34587d038a9f3dfd467b61a3e5cdd286`
 
 Branch at verification:
 `feature/agent-tools-context`
@@ -24,7 +24,7 @@ This is an implementation reference, not a second design proposal. When the desi
 
 ## 1. Repository Snapshot
 
-The repository is a private pnpm TypeScript workspace with Python workers for Docling, LightRAG, and BGE-M3. The tracked baseline at the verification commit contains 132 files, 93 TypeScript files, 6 Python files, 17 test files, and about 11,464 lines across tracked TypeScript, Python, and JavaScript source. Generated `lib/`, `data/`, local Python environments, node modules, `.env`, and machine-specific source configuration are ignored.
+The repository is a private pnpm TypeScript workspace with Python workers for Docling, LightRAG, and BGE-M3. The tracked baseline at the verification commit contains 135 files, 95 TypeScript files, 6 Python files, 18 test files, and about 12,152 lines across tracked TypeScript, Python, and JavaScript source. Generated `lib/`, `data/`, local Python environments, node modules, `.env`, and machine-specific source configuration are ignored.
 
 The current runtime foundation is:
 
@@ -34,9 +34,10 @@ The current runtime foundation is:
 - `@monash-study/study-controller`: validation, model selection, context assembly, event emission, and runtime orchestration.
 - `@monash-study/knowledge-service`: Resource discovery, normalization, LightRAG worker boundary, indexing state, and Evidence retrieval.
 - `@monash-study/memory-service`: long-term student Memory persistence, candidate extraction, deterministic resolution, embedding, recall, and lifecycle.
+- `@monash-study/study-application`: the single outer composition root and UI-facing `StudyApplication` contract; it wires real or injected providers and owns shutdown.
 - `@monash-study/dsh-integration`: Cordis registration, the published DeepSeek Harness adapter, and the authenticated tool bridge.
 
-The stable Main Agent path now includes baseline Student Context, direct Knowledge/Resource/Memory tools, an optional native Research Subagent, a final answer, and awaited Post-turn Memory Observation. `manage_memory` provides deliberate hot-path formation during the Harness loop; the successful completed-turn path supplies the same `MemoryService` with a system-triggered observation. Research delegation is bounded and read-only: the child can use only `search_knowledge` and `get_resource`, and the Main Agent remains responsible for final synthesis. All paths reuse the existing product-owned services and SQLite state.
+The stable Main Agent path now includes baseline Student Context, direct Knowledge/Resource/Memory tools, an optional native Research Subagent, a final answer, and awaited Post-turn Memory Observation. `manage_memory` provides deliberate hot-path formation during the Harness loop; the successful completed-turn path supplies the same `MemoryService` with a system-triggered observation. Research delegation is bounded and read-only: the child can use only `search_knowledge` and `get_resource`, and the Main Agent remains responsible for final synthesis. The outer `StudyApplication` is the only application composition root: it wires these capabilities, enforces an idempotent shutdown path, and exposes no raw Harness result types to the UI. All paths reuse the existing product-owned services and SQLite state.
 
 ## 2. Current Architecture
 
@@ -45,6 +46,9 @@ The stable Main Agent path now includes baseline Student Context, direct Knowled
 ```text
 User / smoke script
         │
+        ▼
+StudyApplication.runTurn()
+        │ owns composition and shutdown; exposes stable Study DTOs
         ▼
 StudyController.runTurn()
         │ validates input, selects logical model, builds Student Context
@@ -195,6 +199,7 @@ monash-study-agent/
 │   ├── runtime-database/      SQLite connection and migrations
 │   ├── study-core/            Provider-neutral capabilities, Main Agent, and Research contracts
 │   ├── study-controller/      Product turn orchestration
+│   ├── study-application/     Outer composition root and stable application contract
 │   └── dsh-integration/       Cordis, Harness, and Research adapter boundary
 ├── resources/
 │   └── resources.json         Generated Resource Manifest snapshot
@@ -247,6 +252,7 @@ The tables below cover the tracked TypeScript and Python implementation, the pro
 | `packages/study-core/src/models/model-service.ts` | Model generation capability seam | `StudyGenerationRequest`, `StudyModelService` | Study state and Evidence | Controller dependencies |
 | `packages/study-core/src/models/deepseek-model-service.ts` | DeepSeek model service type alias/seam | DeepSeek model service type | `StudyModelService` | Future model composition |
 | `packages/study-core/src/index.ts` | Public study-core barrel | All core exports | Core files | Workspace consumers |
+| `packages/study-application/src/index.ts` | Single outer composition root; wires real or injected providers and owns shutdown | `StudyApplication`, `StudyApplicationOptions`, `createStudyApplication` | DSH, Knowledge, Memory, Controller, study-core | UI entry point, integration tests |
 | `packages/study-controller/src/study-controller.ts` | Validates a turn, builds context, invokes runtime, awaits non-fatal Post-turn Observation, and emits events | `StudyController`, dependency/options DTOs | Structural `study-core` capabilities | Smoke scripts, application entry |
 | `packages/study-controller/src/runtime/study-runtime.ts` | Product composition root for Knowledge capability | `StudyRuntime`, `createStudyRuntime` | Knowledge Service, study-core | Cordis plugin |
 | `packages/study-controller/src/runtime/index.ts` | Runtime barrel | Runtime exports | `study-runtime.ts` | Controller package |
@@ -358,6 +364,7 @@ The tables below cover the tracked TypeScript and Python implementation, the pro
 | `tests/study-runtime.test.ts` | Product Knowledge composition root |
 | `tests/study-agent-runtime.test.ts` | Controller/runtime contracts, prompt, events, continuity, and error boundary |
 | `tests/study-agent-tools.test.ts` | Student Context injection, three bridge tools, and Evidence snapshot behavior |
+| `tests/study-application.test.ts` | Composition root, temporary Memory SQLite, lifecycle failure policy, Research recovery, concurrency, and cleanup |
 | `tests/research-subagent.test.ts` | Research contracts, Evidence attribution, native lifecycle adaptation, bounded retrieval, failure recovery, and DSH tool restriction |
 | `tests/fixtures/ed-discussions.json` | Forum normalization fixture |
 
@@ -395,6 +402,7 @@ More precisely:
 - `runtime-database` owns the SQLite connection/migration mechanism and is used by Memory and LightRAG state code; it does not own service behavior.
 - `study-core` imports only shared types among workspace packages. It owns abstractions, not the concrete Knowledge or Memory implementations.
 - `study-controller` depends on Knowledge Service for its default runtime composition and on study-core for all stable orchestration contracts.
+- `study-application` is the outer composition root. It depends on concrete Knowledge, Memory, Controller, DSH, and Core packages, supports injected fake/real capabilities, and returns only `StudyApplication.runTurn()` / `close()` above the UI boundary.
 - `knowledge-service` implements the `KnowledgeService` interface and imports study-core only for that interface, preserving the controller boundary.
 - `memory-service` is not a dependency of `study-controller` or `dsh-integration` at package level. Integration uses the structural `StudyMemoryReader`, `StudyMemoryManager`, and `StudyPostTurnObserver` capabilities; one `MemoryService` instance can satisfy all three without moving Memory policy into orchestration packages.
 - `dsh-integration` is the only source package importing Cordis/DeepSeek Harness. The DSH child sees only `config/main-agent-tools.mjs`; the product parent owns actual service calls.
@@ -410,6 +418,13 @@ These are the stable seams future work should use instead of importing provider 
 interface StudyAgentRuntime {
   runTurn(input: StudyTurnInput, options?: StudyTurnOptions): Promise<StudyTurnResult>
 }
+
+interface StudyApplication {
+  runTurn(input: StudyTurnInput, options?: StudyTurnOptions): Promise<StudyTurnResult>
+  close(): Promise<void>
+}
+
+function createStudyApplication(options?: StudyApplicationOptions): Promise<StudyApplication>
 
 interface StudyTurnInput {
   query: string
@@ -573,10 +588,12 @@ The current real path is:
 
 ```text
 CLI or application caller
+  → createStudyApplication(options)
+  → StudyApplication.runTurn(input, options)
   → StudyController.runTurn(input, options)
   → validateStudyTurnInput()
   → ModelPolicy.selectModel('main_agent')
-  → optional StudentContextBuilder.build()
+  → optional StudentContextBuilder.build(); failure emits student_context_failed and uses empty context
   → DeepSeekHarnessRuntime.runTurn()
   → renderMainStudyAgentPrompt()
   → StudyToolBridge.begin(runId, input) when tools are configured
@@ -598,7 +615,7 @@ CLI or application caller
 Important details:
 
 1. The controller trims and validates the query, course code, week, and topic. It generates `runId` unless the caller supplies one.
-2. If the caller did not provide `studentContext` and a builder was injected, the controller builds it before the Harness call.
+2. If the caller did not provide `studentContext` and a builder was injected, the controller builds it before the Harness call. A builder failure is non-fatal: the Controller emits `student_context_failed`, supplies `{ memories: [] }`, and continues.
 3. `DeepSeekHarnessRuntime` maps `fast` to `deepseek-official/deepseek-v4-flash` and `strong` to `deepseek-official/deepseek-v4-pro`. The current default policy selects `fast`.
 4. A continuation call passes the previous `conversation.sessionId`. The current DSH SDK exposes one durable session identity, so the adapter returns it as both `sessionId` and `conversationId`.
 5. The Main Agent system prompt is supplied through the Cordis patch environment. The user prompt contains the current course context, Student Context, and query.
@@ -607,6 +624,7 @@ Important details:
 8. `StudyToolBridge.end(runId)` clears the active run in `finally`; Evidence and `toolsUsed` are not durable artifacts.
 
 9. When the Main Agent calls `research_subagent`, DSH starts a fresh in-process child using the independent Research persona. The child is restricted to `search_knowledge` and `get_resource`, cannot recurse, and shares the active run's bounded eight-action retrieval budget. The Main Agent receives the native child output and remains responsible for the final answer.
+10. The application/runtime allows one active turn. A second call receives `CONCURRENT_RUN`; bridge and runtime active state are cleared in `finally`, including Harness and tool failures. `StudyApplication.close()` is idempotent.
 
 ## 9. Student Context Flow
 
@@ -787,7 +805,7 @@ The pinned DSH packages are `0.1.6-alpha.2` for the SDK client, protocol, sessio
 
 ### Prompt and model mapping
 
-`renderMainStudyAgentPrompt()` keeps system prompt, runtime context, and user prompt separate. The default tool-enabled prompt is `main-study-agent-v4`; it defines the four direct tools plus `research_subagent`, distinguishes hot-path management from Post-turn Observation, preserves source-type semantics, and requires a successful mutation result before the Agent confirms persistence. Without `toolServices`, the adapter uses the no-tools prompt. `config/main-agent.cordis.patch.yml` sets `personaPrefix` from `MONASH_STUDY_AGENT_SYSTEM_PROMPT`, inserts `./main-agent-tools.mjs`, and conditionally inserts the native DSH Research child when the product bridge is enabled.
+`renderMainStudyAgentPrompt()` keeps system prompt, runtime context, and user prompt separate. The default tool-enabled prompt is `main-study-agent-v5`; it defines the four direct tools plus `research_subagent`, distinguishes hot-path management from Post-turn Observation, preserves source-type semantics, requires a successful mutation result before the Agent confirms persistence, and explicitly requires a limitation when Knowledge returns no usable Evidence. Without `toolServices`, the adapter uses the no-tools prompt. `config/main-agent.cordis.patch.yml` sets `personaPrefix` from `MONASH_STUDY_AGENT_SYSTEM_PROMPT`, inserts `./main-agent-tools.mjs`, and conditionally inserts the native DSH Research child when the product bridge is enabled.
 
 Product code sees only `fast`/`strong`. The current mapping is:
 
@@ -796,7 +814,9 @@ Product code sees only `fast`/`strong`. The current mapping is:
 | `fast` | `deepseek-official` | `deepseek-v4-flash` |
 | `strong` | `deepseek-official` | `deepseek-v4-pro` |
 
-The native Research entry is `@deepseek-ai/dsh-tool-subagent` with provider `spawn`, `backgroundMode: one-shot`, `maxDepth: 1`, and a `toolFilter.allow` list containing only `search_knowledge` and `get_resource`. The base profile's generic `subagent`, `subagent_fork`, control, and list-agents rows are disabled in the product patch, so Main Agent delegation cannot silently fall back to another child contract. Its independent persona is `research-subagent-v1`; the child model route is `deepseek-official/deepseek-v4-pro`. The product adapter consumes DSH `subagent.started` and `subagent.finished` notifications but exposes only safe task/status/count metadata through `AgentEvent`.
+The native Research entry is `@deepseek-ai/dsh-tool-subagent` with provider `spawn`, `backgroundMode: one-shot`, `maxDepth: 1`, and a `toolFilter.allow` list containing only `search_knowledge` and `get_resource`. The base profile's generic `subagent`, `subagent_fork`, control, and list-agents rows are disabled in the product patch, so Main Agent delegation cannot silently fall back to another child contract. Its independent persona is `research-subagent-v2`; the child model route is `deepseek-official/deepseek-v4-pro`. The product adapter consumes DSH `subagent.started` and `subagent.finished` notifications but exposes only safe task/status/count metadata through `AgentEvent`. The child prompt also requires empty/limited Evidence to remain explicit and forbids secrets, local absolute paths, stack traces, and internal runtime objects.
+
+The pinned DSH `0.1.6-alpha.2` types/documentation expose no reliable wire-level mid-turn cancellation API: an active request continues until the runtime is closed. The product honors `AbortSignal` before Harness execution and does not claim unsupported mid-turn cancellation; future cancellation work must be verified against a newer DSH contract.
 
 ### Cordis boundary
 
@@ -814,8 +834,10 @@ Lifecycle:
 4. The DSH plugin reads those variables. If either is absent it registers nothing; otherwise it registers the four direct tool schemas. The Cordis patch separately installs the native `research_subagent` tool when `MONASH_STUDY_AGENT_ENABLE_RESEARCH_SUBAGENT=1`.
 5. The child sends `POST /tool` with `Authorization: Bearer <token>` and a JSON `{ name, arguments }` body.
 6. `StudyToolBridge.#handle()` checks method/path, token, request size, JSON shape, and an active run. It dispatches by name and returns `{ ok: true, value }` or a safe error message in a 200 JSON envelope for tool-level failures. Memory service exceptions are reduced to `Memory management failed` before crossing the bridge.
-7. `begin(runId, input)` supplies the current course context and ensures only one Harness turn is active. `snapshot(runId)` returns deduplicated Evidence, tool names, and Research retrieval-action count. `end(runId)` clears the active context. The same active-run budget covers direct and Research `search_knowledge`/`get_resource` calls.
-8. `DeepSeekHarnessRuntime.close()` closes cached Harness drivers and the bridge server.
+7. `begin(runId, input)` supplies the current course context and ensures only one Harness turn is active. The runtime also enforces this at application level and returns stable `CONCURRENT_RUN` instead of a generic error. `snapshot(runId)` returns deduplicated full product Evidence, tool names, and Research retrieval-action count. `end(runId)` clears the active context. The same active-run budget covers direct and Research `search_knowledge`/`get_resource` calls.
+8. Model-facing tool values are projections: Evidence keeps identity/course/title/content/source/score and safe locator metadata only; Resource text omits absolute path, root, size, hashes, and downloader metadata; recalled Memory omits timestamps, access counters, and source-session metadata. The parent retains full Evidence for Evidence-id validation and `StudyTurnResult` propagation.
+9. Provider failures are converted to stable safe tool errors; error messages containing API keys, tokens, `.env`, SQLite, stack traces, or absolute paths are redacted.
+10. `DeepSeekHarnessRuntime.close()` closes cached Harness drivers and the bridge server; both runtime and application close operations are idempotent.
 
 The token is generated at runtime and never committed. The bridge is loopback-only by default. The current `#active` field intentionally rejects concurrent turns; a future concurrent runtime would need an explicit run-scoped registry rather than relaxing this check.
 
@@ -825,6 +847,7 @@ The actual event union is:
 
 ```text
 run_started
+student_context_failed
 model_started
 model_completed
 answer_completed
@@ -838,7 +861,7 @@ run_completed
 run_failed
 ```
 
-`StudyController` emits run, observation, and failure events. `DeepSeekHarnessRuntime` emits model events and safe Research lifecycle events after adapting native DSH notifications. Research events include only `subagentName`, `taskId`, Evidence count when available, and `SUBAGENT_FAILED` on failure. Observation completion may include a result count; observation failure uses `MEMORY_OBSERVATION_FAILED`. Payloads contain only `runId`, ISO timestamp, optional session/conversation/turn ids, optional logical model profile, optional count, and optional stable error code. Prompts, model answers, tool arguments, Memory content, Evidence content, child output, and secrets are intentionally not included.
+`StudyController` emits run, context, observation, and failure events. `student_context_failed` is emitted after `run_started` and before the runtime starts; it carries only `STUDENT_CONTEXT_FAILED` and the turn continues with empty context. `DeepSeekHarnessRuntime` emits model events and safe Research lifecycle events after adapting native DSH notifications. Research events include only `subagentName`, `taskId`, Evidence count when available, and `SUBAGENT_FAILED` on failure. Observation completion may include a result count; observation failure uses `MEMORY_OBSERVATION_FAILED`. Payloads contain only `runId`, ISO timestamp, optional session/conversation/turn ids, optional logical model profile, optional count, and optional stable error code. Prompts, model answers, tool arguments, Memory content, Evidence content, child output, and secrets are intentionally not included.
 
 `NoopAgentEventSink` is the normal default; `InMemoryAgentEventSink` records safe events for tests. A future UI or tracing adapter should consume `AgentEventSink` rather than importing DSH event objects.
 
@@ -853,12 +876,13 @@ run_failed
 | `MODEL_ERROR` | Harness returned an empty answer | DSH adapter | Terminates |
 | `HARNESS_ERROR` | DSH could not complete or returned no turn identity | DSH adapter/driver | Terminates |
 | `ABORTED` | Abort signal was already set before execution | DSH adapter | Terminates |
+| `CONCURRENT_RUN` | Another turn is active in the same application/runtime | Controller/runtime/bridge | Terminates only the second call; active turn continues |
 | `SUBAGENT_FAILED` | Native Research child did not complete successfully | DSH notification adapter | Main Agent answer remains recoverable |
 | `UNKNOWN` | Unclassified failure converted at controller boundary | Controller catch block | Terminates |
 
-`MEMORY_OBSERVATION_FAILED` is an `AgentEvent` lifecycle code rather than a `StudyRuntimeError`: it records a failed post-answer formation attempt while the completed turn continues successfully.
+`STUDENT_CONTEXT_FAILED` and `MEMORY_OBSERVATION_FAILED` are `AgentEvent` lifecycle codes rather than fatal `StudyRuntimeError` values: they record recoverable pre-turn context or post-answer formation failures while the completed turn continues successfully.
 
-Tool-level failures are caught inside the bridge and returned as a safe tool error envelope to the Harness. They do not automatically throw through the parent runtime. A Post-turn Memory observation failure is also non-fatal after an answer: the Controller emits `memory_observation_failed`, then `run_completed`, and returns the existing `StudyTurnResult`. Memory context builder failures and Knowledge service failures outside a tool call currently propagate and fail the turn; there is no generalized graceful-degradation policy beyond these explicit boundaries.
+Tool-level Knowledge, Resource, and Memory failures are caught inside the bridge and returned as safe tool error envelopes to the Harness. They do not automatically throw through the parent runtime. A Student Context builder failure emits `student_context_failed`, supplies empty context, and continues. A Post-turn Memory observation failure is also non-fatal after an answer: the Controller emits `memory_observation_failed`, then `run_completed`, and returns the existing `StudyTurnResult`. Invalid input, session identity errors, Harness/model failures, missing turn identity, pre-execution abort, and `CONCURRENT_RUN` for the second call remain fatal for that call.
 Research child failures follow the same recoverability boundary: the adapter emits `subagent_failed`, records a limitation, and preserves the Main Agent's already-produced final answer. A successful child does not bypass Main Agent synthesis.
 
 ## 17. CLI and Scripts
@@ -926,7 +950,7 @@ There is no separate committed migration directory. Migrations are code constant
 
 ### Automated tests
 
-The tracked test suite is organized around normalization, worker protocol, LightRAG state/sync/retrieval, Resource reads, Memory persistence/intelligence, runtime composition, Main Agent/bridge behavior, and Research Subagent contracts. The current unit/integration suite passed `pnpm test` with 70 tests passing after Round 4 implementation.
+The tracked test suite is organized around normalization, worker protocol, LightRAG state/sync/retrieval, Resource reads, Memory persistence/intelligence, runtime composition, Main Agent/bridge behavior, and Research Subagent contracts. The current unit/integration suite passed with 78 tests passing after Round 5 implementation. The new `tests/study-application.test.ts` covers direct composition, real MemoryService with temporary SQLite, Student Context/Post-turn failure recovery, Research success/failure propagation, concurrent runs, cleanup, and idempotent close.
 
 ### High-value real smoke coverage
 
@@ -966,6 +990,7 @@ Unit/integration tests use injected fake Harness drivers, fake LightRAG clients,
 | Hybrid formation idempotence | Complete | Canonical keys + Resolver; exact same-turn Episode deduplication |
 | Research Subagent | Complete; real smoke passed | `ResearchTask`/`ResearchResult`, native DSH `research_subagent`, restricted child tools, adapter, safe events |
 | End-to-end multi-agent workflow | Complete; real smoke passed | Main prompt delegation → native child → bounded retrieval → Evidence-backed Main synthesis |
+| Backend composition and contract freeze | Complete; Round 5 integration matrix passed | `createStudyApplication`, stable UI contract, failure policy, concurrency/cleanup, safe model payloads |
 | React UI | Not implemented | No UI package |
 | Electron shell | Not implemented | No Electron package |
 
@@ -1069,6 +1094,14 @@ The repository history is the source of truth for how the current boundaries wer
 - Disabled the base generic delegation rows, set the native child depth cap to one Main-Agent child level, strengthened smoke assertions for completed/no-failed lifecycle and both read tools, and corrected the retrieval-action counter to cap successful actions at eight.
 - Verification: typecheck, build, 70 tests, and the authorized real `pnpm run agent-research-smoke` passed. The smoke recorded `subagentsUsed = [research]`, 8 research actions, `search_knowledge` + `get_resource`, 25 LightRAG Evidence items, and final synthesis.
 
+### `bc42a00a34587d038a9f3dfd467b61a3e5cdd286` — Implement backend application freeze
+
+- Purpose: finish the backend boundary before React UI work.
+- Added `@monash-study/study-application` with `createStudyApplication()`, injectable real/fake Harness, Knowledge, Resource, Memory, event, and post-turn capabilities, plus idempotent shutdown.
+- Hardened fatal/non-fatal policy: Student Context failures degrade to empty context; Knowledge/Resource/Memory tool failures return safe envelopes; Post-turn and Research failures remain recoverable; invalid input, Harness/model/session/turn identity, abort, and concurrent second runs remain fatal for that call.
+- Added one-active-run enforcement, bridge cleanup in `finally`, bounded Research settings, cancellation limitation documentation for pinned DSH, and model-facing projections that omit absolute paths, hashes, secrets, stack details, and unnecessary Memory metadata.
+- Verification: 78 tests, strict typecheck, and production build passed. The new integration matrix uses fake providers plus temporary SQLite and removes the temporary database in `finally`.
+
 ## 23. Where Do I Change X?
 
 | I want to change... | Start here | Related files |
@@ -1095,14 +1128,17 @@ The repository history is the source of truth for how the current boundaries wer
 | Change post-turn Memory observation | `packages/study-controller/src/study-controller.ts` after runtime completion | `StudyPostTurnObserver`, `MemoryService.observe()`, event/error policy |
 | Change `manage_memory` | `config/main-agent-tools.mjs` and `StudyToolBridge.#execute()` | `StudyMemoryManager`, `MemoryCandidate`, resolver safety tests |
 | Add Research Subagent | `packages/study-core/src/research-subagent.ts` and `packages/dsh-integration/src/research-adapter.ts` | Main prompt, native DSH patch entry, bounded bridge budget, tests, and `agent-research-smoke.ts` |
+| Change the application composition root | `packages/study-application/src/index.ts` | `StudyApplicationOptions`, provider ownership, `StudyApplication.close()`, integration tests |
+| Change backend failure policy | `packages/study-controller/src/study-controller.ts`, `packages/study-core/src/agent-runtime.ts` | Error codes, lifecycle events, `tests/study-application.test.ts` |
+| Change model-facing payload safety | `packages/dsh-integration/src/study-tool-bridge.ts` | Tool tests, safe Evidence/Resource/Memory projections, error redaction |
 
 ## 24. Known Boundaries and Current Limitations
 
 - Post-turn Observation is awaited for deterministic persistence. Its failure is non-fatal, while its latency remains part of the completed-turn response time.
 - The same-turn Learning Episode deduplication registry is process-local and bounded to 256 turn ids. It addresses the Hybrid Formation double-write case without creating durable cross-run deduplication semantics.
 - A first-turn `manage_memory` call may not yet know the newly created Harness session id at bridge-dispatch time; it carries the product `runId` as `sourceTurnId`. The completed-turn observer always carries the real returned Harness session id.
-- `StudyToolBridge` supports one active Harness turn per runtime instance and has no multi-run registry.
-- Tool-level errors are returned to the model, but Student Context and parent-side Knowledge failures are not governed by a shared graceful-degradation policy.
+- `StudyToolBridge` and `DeepSeekHarnessRuntime` support one active Harness turn per runtime instance; a second call receives `CONCURRENT_RUN` and the first call retains ownership.
+- The pinned DSH release has no reliable mid-turn cancellation API. Only pre-execution `AbortSignal` handling is promised; active cancellation remains unsupported until the runtime is closed or DSH exposes a verified API.
 - `StudyTurnResult` carries Evidence and tool names but does not persist a turn artifact or raw tool trace.
 - `Tool Registry`, `Tool Execution Context`, and generic `Tool Result` abstractions are not yet separate TypeScript interfaces; the current child registration and bridge switch are concrete implementations.
 - `connectors/ed` and `connectors/moodle` are type seams, not live synchronizers in this repository.
@@ -1125,6 +1161,21 @@ Main Study Agent
 ```
 
 Round 4 preserves the current ownership model: Harness owns subagent execution, Knowledge Service owns retrieval and Evidence construction, Main Study Agent owns delegation and final synthesis, and Memory remains outside the Research child. The implementation is bounded to one native child task at a time with no recursive delegation and eight combined retrieval actions per active turn. The authorized real smoke passed on 2026-09-22 with 8 actions and 25 LightRAG Evidence items reaching the final result.
+
+## 26. Round 5 Backend Hardening and Freeze
+
+Round 5 establishes the final backend boundary before React UI work:
+
+```text
+UI
+  → StudyApplication.runTurn()
+  → StudyController
+  → provider-neutral StudyTurnResult / AgentEvent / StudyRuntimeError
+```
+
+`createStudyApplication()` is the single outer composition root. It can construct the real LightRAG, Local Resource, MemoryService, and DeepSeek Harness path, or accept injected fakes for deterministic tests. The UI contract is frozen at `StudyTurnInput`, `StudyTurnResult`, `AgentEventSink`, and stable runtime error codes; raw DSH sessions, notifications, bridge tokens, tool arguments, Memory store internals, and provider exceptions remain behind the boundary.
+
+The Round 5 integration matrix passed with 78/78 tests, strict typecheck, and production build. It covers direct turns, Knowledge/Resource/Memory tool failure envelopes, Student Context fallback, awaited Post-turn success/failure, Research success/failure recovery, one-active-run concurrency, bridge/runtime cleanup, idempotent close, safe model-facing projections, and temporary SQLite cleanup. The authorized real external course-data smoke remains the Round 4 FIT2109 Research smoke; Round 5's additional integration tests intentionally use fake providers and temporary local state to verify policy without sending additional course content.
 
 ## Maintenance Protocol
 
