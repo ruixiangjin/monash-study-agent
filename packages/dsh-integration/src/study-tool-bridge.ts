@@ -9,6 +9,7 @@ import type {
   StudentMemoryContext,
 } from '@monash-study/study-core'
 import { RESEARCH_SUBAGENT_ACTION_BUDGET } from '@monash-study/study-core'
+import { StudyRuntimeError } from '@monash-study/study-core'
 
 export interface StudyToolBridgeOptions {
   readonly services: StudyAgentToolServices
@@ -83,7 +84,7 @@ export class StudyToolBridge {
 
   begin(runId: string, input: StudyTurnInput): void {
     if (this.#active !== undefined) {
-      throw new Error('Study tool bridge does not support concurrent Harness turns')
+      throw new StudyRuntimeError('CONCURRENT_RUN', 'Another Study Agent turn is already running.')
     }
     this.#active = { runId, input, evidence: new Map(), toolsUsed: new Set(), researchActions: 0 }
   }
@@ -150,20 +151,34 @@ export class StudyToolBridge {
         if (course === undefined) throw new Error('search_knowledge requires a course')
         const week = optionalInteger(args, 'week')
         const limit = optionalInteger(args, 'limit')
-        const evidence = await this.#services.knowledgeService.search({
-          query,
-          course,
-          ...(week === undefined ? {} : { week }),
-          ...(limit === undefined ? {} : { limit }),
-        })
+        let evidence: readonly Evidence[]
+        try {
+          evidence = await this.#services.knowledgeService.search({
+            query,
+            course,
+            ...(week === undefined ? {} : { week }),
+            ...(limit === undefined ? {} : { limit }),
+          })
+        } catch {
+          throw new Error('Knowledge search failed')
+        }
         for (const item of evidence) active.evidence.set(item.evidenceId, item)
-        return { course, query, evidence, evidenceCount: evidence.length }
+        return {
+          course,
+          query,
+          evidence: evidence.map(toModelFacingEvidence),
+          evidenceCount: evidence.length,
+        }
       }
       case 'get_resource': {
         if (this.#services.resourceReader === undefined) throw new Error('Resource reading is unavailable')
         consumeResearchAction(active, this.#maxResearchActions)
         const resourceId = requiredString(args, 'resourceId')
-        return await this.#services.resourceReader.readText(resourceId)
+        try {
+          return toModelFacingResourceText(await this.#services.resourceReader.readText(resourceId))
+        } catch {
+          throw new Error('Resource read failed')
+        }
       }
       case 'recall_memory': {
         if (this.#services.memoryReader === undefined) throw new Error('Memory recall is unavailable')
@@ -172,13 +187,18 @@ export class StudyToolBridge {
         const topic = optionalString(args, 'topic')
         const limit = optionalInteger(args, 'limit')
         const globalLimit = optionalInteger(args, 'globalLimit')
-        const memories = await this.#services.memoryReader.recall({
-          query,
-          ...(course === undefined ? {} : { course }),
-          ...(topic === undefined ? {} : { topic }),
-          ...(limit === undefined ? {} : { limit }),
-          ...(globalLimit === undefined ? {} : { globalLimit }),
-        })
+        let memories: readonly StudentMemoryContext[]
+        try {
+          memories = await this.#services.memoryReader.recall({
+            query,
+            ...(course === undefined ? {} : { course }),
+            ...(topic === undefined ? {} : { topic }),
+            ...(limit === undefined ? {} : { limit }),
+            ...(globalLimit === undefined ? {} : { globalLimit }),
+          })
+        } catch {
+          throw new Error('Memory recall failed')
+        }
         return { query, memories: memories.map(toMemoryToolValue) }
       }
       case 'manage_memory': {
@@ -277,8 +297,21 @@ function memoryManagementCommand(
 }
 
 function toMemoryToolValue(context: StudentMemoryContext): unknown {
+  const memory = context.memory
   return {
-    memory: context.memory,
+    memory: {
+      memoryId: memory.memoryId,
+      memoryKey: memory.memoryKey,
+      kind: memory.kind,
+      scope: memory.scope,
+      course: memory.course,
+      topic: memory.topic,
+      content: memory.content,
+      status: memory.status,
+      importance: memory.importance,
+      confidence: memory.confidence,
+      sourceType: memory.sourceType,
+    },
     direct: context.direct,
     score: context.score,
   }
@@ -341,7 +374,88 @@ function respond(response: ServerResponse, status: number, body: unknown): void 
 }
 
 function safeToolError(error: unknown): string {
-  return error instanceof Error ? error.message : 'Study Agent tool failed'
+  const message = error instanceof Error ? error.message : 'Study Agent tool failed'
+  return /api[_-]?key|token|\.env|sqlite|stack|\/Users\/|\/private\/|\/tmp\//i.test(message)
+    ? 'Study Agent tool failed'
+    : message
+}
+
+function toModelFacingEvidence(evidence: Evidence): Record<string, unknown> {
+  const metadata: Record<string, unknown> = {}
+  const sourceMetadata = evidence.metadata
+  for (const key of ['week', 'resourceSource', 'contentType', 'lightragChunkId', 'lightragReferenceId']) {
+    const value = sourceMetadata[key]
+    if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+      metadata[key] = value
+    }
+  }
+  const locator = toModelFacingLocator(sourceMetadata.locator)
+  if (locator !== undefined) metadata.locator = locator
+  return {
+    evidenceId: evidence.evidenceId,
+    ...(evidence.resourceId === undefined ? {} : { resourceId: evidence.resourceId }),
+    ...(evidence.course === undefined ? {} : { course: evidence.course }),
+    title: evidence.title,
+    content: evidence.content,
+    sourceSystem: evidence.sourceSystem,
+    retrievalProvider: evidence.retrievalProvider,
+    ...(evidence.score === undefined ? {} : { score: evidence.score }),
+    metadata,
+  }
+}
+
+function toModelFacingResourceText(resourceText: {
+  readonly resource: {
+    readonly resourceId: string
+    readonly course: string | null
+    readonly week: number | null
+    readonly title: string
+    readonly source: string
+    readonly resourceType: string
+    readonly fileType: string
+    readonly extension: string | null
+    readonly relativePath: string
+  }
+  readonly content: string
+}): Record<string, unknown> {
+  return {
+    resource: {
+      resourceId: resourceText.resource.resourceId,
+      course: resourceText.resource.course,
+      week: resourceText.resource.week,
+      title: resourceText.resource.title,
+      source: resourceText.resource.source,
+      resourceType: resourceText.resource.resourceType,
+      fileType: resourceText.resource.fileType,
+      extension: resourceText.resource.extension,
+      relativePath: resourceText.resource.relativePath,
+    },
+    content: resourceText.content,
+  }
+}
+
+function toModelFacingLocator(value: unknown): Record<string, unknown> | undefined {
+  if (!isRecord(value)) return undefined
+  const locator: Record<string, unknown> = {}
+  for (const key of ['kind', 'sourceUrl', 'threadId', 'threadNumber']) {
+    const item = value[key]
+    if (typeof item === 'string' || typeof item === 'number') locator[key] = item
+  }
+  for (const key of ['pageNumbers']) {
+    const item = value[key]
+    if (Array.isArray(item) && item.every((page) => typeof page === 'number')) locator[key] = item
+  }
+  const regions = value.regions
+  if (Array.isArray(regions)) {
+    locator.regions = regions.flatMap((region) => {
+      if (!isRecord(region) || typeof region.page !== 'number') return []
+      return [{
+        page: region.page,
+        ...(typeof region.reference === 'string' ? { reference: region.reference } : {}),
+      }]
+    })
+  }
+  return Object.keys(locator).length === 0 ? undefined : locator
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

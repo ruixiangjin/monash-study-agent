@@ -222,7 +222,7 @@ test('Native subagent lifecycle is adapted into safe product events and result m
   } finally {
     await runtime.close()
   }
-  assert.equal(MAIN_STUDY_AGENT_PROMPT_VERSION, 'main-study-agent-v4')
-  assert.equal(RESEARCH_SUBAGENT_PROMPT_VERSION, 'research-subagent-v1')
+  assert.equal(MAIN_STUDY_AGENT_PROMPT_VERSION, 'main-study-agent-v5')
+  assert.equal(RESEARCH_SUBAGENT_PROMPT_VERSION, 'research-subagent-v2')
   assert.equal(new DefaultModelPolicy().selectModel('research_agent'), 'strong')
 })

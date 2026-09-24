@@ -167,10 +167,35 @@ test('StudyToolBridge executes read and manage tools while keeping Memory result
       sourceType: 'user_explicit',
     })
     assert.equal(knowledge.ok, true)
-    assert.deepEqual(knowledge.value.evidence, [evidence])
-    assert.deepEqual(resourceResult.value, resource)
+    assert.deepEqual(knowledge.value.evidence, [{
+      evidenceId: evidence.evidenceId,
+      course: evidence.course,
+      title: evidence.title,
+      content: evidence.content,
+      sourceSystem: evidence.sourceSystem,
+      retrievalProvider: evidence.retrievalProvider,
+      metadata: {},
+    }])
+    assert.deepEqual(resourceResult.value, {
+      resource: {
+        resourceId: resource.resource.resourceId,
+        course: resource.resource.course,
+        week: resource.resource.week,
+        title: resource.resource.title,
+        source: resource.resource.source,
+        resourceType: resource.resource.resourceType,
+        fileType: resource.resource.fileType,
+        extension: resource.resource.extension,
+        relativePath: resource.resource.relativePath,
+      },
+      content: resource.content,
+    })
+    assert.equal(JSON.stringify(knowledge.value).includes('/tmp/git.md'), false)
+    assert.equal(JSON.stringify(resourceResult.value).includes('hash'), false)
     assert.equal(memory.ok, true)
     assert.deepEqual(memoryRequest, { query: 'Git preferences', course: 'FIT2109' })
+    assert.equal(JSON.stringify(memory.value).includes('sourceSessionId'), false)
+    assert.equal(JSON.stringify(memory.value).includes('lastAccessedAt'), false)
     assert.equal(managed.ok, true)
     assert.deepEqual(managed.value, {
       operation: 'ADD',
@@ -198,6 +223,40 @@ test('StudyToolBridge executes read and manage tools while keeping Memory result
     })
   } finally {
     bridge.end('run-1')
+    await bridge.close()
+  }
+})
+
+test('StudyToolBridge converts Knowledge and Resource provider failures to safe errors', async () => {
+  const bridge = new StudyToolBridge({
+    services: {
+      knowledgeService: {
+        async search() { throw new Error('absolute /Users/example/private/.env DEEPSEEK_API_KEY=secret') },
+      },
+      resourceReader: {
+        async readText() { throw new Error('stack at /Users/example/private.sqlite') },
+      },
+    },
+  })
+  const endpoint = await bridge.start()
+  bridge.begin('run-failure', { query: 'Question', courseContext: { courseCode: 'FIT2109' } })
+  const call = async (name: string, args: Record<string, unknown>): Promise<any> => {
+    const response = await fetch(endpoint.url, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${endpoint.token}`, 'content-type': 'application/json' },
+      body: JSON.stringify({ name, arguments: args }),
+    })
+    return response.json()
+  }
+  try {
+    const knowledge = await call('search_knowledge', { query: 'Git' })
+    const resource = await call('get_resource', { resourceId: 'resource-1' })
+    assert.deepEqual(knowledge, { ok: false, error: { message: 'Knowledge search failed' } })
+    assert.deepEqual(resource, { ok: false, error: { message: 'Resource read failed' } })
+    assert.equal(JSON.stringify({ knowledge, resource }).includes('DEEPSEEK_API_KEY'), false)
+    assert.equal(JSON.stringify({ knowledge, resource }).includes('/Users/example'), false)
+  } finally {
+    bridge.end('run-failure')
     await bridge.close()
   }
 })

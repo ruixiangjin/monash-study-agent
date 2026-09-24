@@ -72,6 +72,8 @@ export class DeepSeekHarnessRuntime implements StudyAgentRuntime {
   readonly #systemPrompt: string
   readonly #harnesses = new Map<ModelProfile, DeepSeekHarnessDriver>()
   readonly #toolBridge: StudyToolBridge | undefined
+  #activeRunId: string | undefined
+  #closed = false
 
   constructor(options: DeepSeekHarnessRuntimeOptions = {}) {
     loadProjectEnvironment()
@@ -96,6 +98,9 @@ export class DeepSeekHarnessRuntime implements StudyAgentRuntime {
     if (options.signal?.aborted === true) {
       throw new StudyRuntimeError('ABORTED', 'The Study Agent turn was aborted before Harness execution.')
     }
+    if (this.#closed) {
+      throw new StudyRuntimeError('HARNESS_ERROR', 'DeepSeek Harness could not complete the Study Agent turn.')
+    }
 
     const prompt = renderMainStudyAgentPrompt(input, { toolsEnabled: this.#toolBridge !== undefined })
     const sessionId = input.conversation?.sessionId
@@ -106,10 +111,14 @@ export class DeepSeekHarnessRuntime implements StudyAgentRuntime {
       )
     }
 
+    if (this.#activeRunId !== undefined) {
+      throw new StudyRuntimeError('CONCURRENT_RUN', 'Another Study Agent turn is already running.')
+    }
+    this.#activeRunId = runId
     let toolSnapshot: StudyToolRunSnapshot = { evidence: [], toolsUsed: [], researchActions: 0 }
-    this.#toolBridge?.begin(runId, input)
-    await emit(eventSink, event(runId, 'model_started', modelProfile))
     try {
+      this.#toolBridge?.begin(runId, input)
+      await emit(eventSink, event(runId, 'model_started', modelProfile))
       const harness = await this.#getHarness(modelProfile)
       const result = await harness.session(sessionId).run(prompt.userPrompt)
       if (result.finalResponse.trim().length === 0) {
@@ -172,10 +181,14 @@ export class DeepSeekHarnessRuntime implements StudyAgentRuntime {
       throw new StudyRuntimeError('HARNESS_ERROR', 'DeepSeek Harness could not complete the Study Agent turn.', { cause: error })
     } finally {
       this.#toolBridge?.end(runId)
+      if (this.#activeRunId === runId) this.#activeRunId = undefined
     }
   }
 
   async close(): Promise<void> {
+    if (this.#closed) return
+    this.#closed = true
+    this.#activeRunId = undefined
     const harnesses = new Set(this.#harnesses.values())
     if (this.#injectedHarness !== undefined) harnesses.add(this.#injectedHarness)
     await Promise.all([...harnesses].map((harness) => harness.close?.()))
@@ -184,10 +197,10 @@ export class DeepSeekHarnessRuntime implements StudyAgentRuntime {
   }
 
   async #getHarness(profile: ModelProfile): Promise<DeepSeekHarnessDriver> {
+    const bridge = await this.#toolBridge?.start()
     if (this.#injectedHarness !== undefined) return this.#injectedHarness
     const existing = this.#harnesses.get(profile)
     if (existing !== undefined) return existing
-    const bridge = await this.#toolBridge?.start()
     const created = this.#createHarness?.(profile) ?? this.#createDefaultHarness(profile, bridge)
     this.#harnesses.set(profile, created)
     return created

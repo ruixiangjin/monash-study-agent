@@ -49,6 +49,10 @@ export class LightRAGKnowledgeService implements KnowledgeService {
     return (await this.searchDetailed(query)).evidence
   }
 
+  close(): void {
+    this.#stateStore.close()
+  }
+
   async searchDetailed(query: KnowledgeQuery): Promise<LightRAGSearchResult> {
     const text = query.query.trim()
     if (!text) throw new Error('Knowledge query must not be empty')

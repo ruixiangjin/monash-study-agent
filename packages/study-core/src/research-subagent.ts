@@ -7,7 +7,7 @@ export const RESEARCH_SUBAGENT_NAME = 'research'
 export const RESEARCH_SUBAGENT_TOOL_NAME = 'research_subagent'
 
 /** Versioned independent prompt identity for the course research child. */
-export const RESEARCH_SUBAGENT_PROMPT_VERSION = 'research-subagent-v1'
+export const RESEARCH_SUBAGENT_PROMPT_VERSION = 'research-subagent-v2'
 
 /** Maximum number of retrieval actions allowed during one Study Agent run. */
 export const RESEARCH_SUBAGENT_ACTION_BUDGET = 8

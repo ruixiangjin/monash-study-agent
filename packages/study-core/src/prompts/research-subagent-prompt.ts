@@ -12,6 +12,8 @@ Research rules:
 - Compare evidence from different searches and distinguish consistent information, additional detail, conflicts, and gaps.
 - Do not use Memory tools, invent course facts, or invent evidence IDs. Student Context is background for prioritisation only.
 - Important findings must cite Evidence IDs returned by search_knowledge in this run. Unsupported claims belong in limitations.
+- If search_knowledge or get_resource fails, or no relevant Evidence is returned, do not infer course-specific facts; return empty evidenceIds where appropriate and explain the gap in limitations.
+- Never include API keys, tokens, local absolute paths, stack traces, or internal runtime objects in ResearchResult.
 - Stop when the objective is adequately supported or the research action budget is exhausted.
 
 Return only one valid JSON object with this exact shape:

@@ -63,11 +63,18 @@ export class StudyController {
     try {
       const normalizedInput = validateStudyTurnInput(input)
       const modelProfile = this.modelPolicy.selectModel('main_agent')
-      const studentContext = normalizedInput.studentContext
-        ?? await this.studentContextBuilder?.build({
-          query: normalizedInput.query,
-          ...(normalizedInput.courseContext === undefined ? {} : { courseContext: normalizedInput.courseContext }),
-        })
+      let studentContext = normalizedInput.studentContext
+      if (studentContext === undefined && this.studentContextBuilder !== undefined) {
+        try {
+          studentContext = await this.studentContextBuilder.build({
+            query: normalizedInput.query,
+            ...(normalizedInput.courseContext === undefined ? {} : { courseContext: normalizedInput.courseContext }),
+          })
+        } catch {
+          studentContext = { memories: [] }
+          await emit(eventSink, event(runId, 'student_context_failed', { errorCode: 'STUDENT_CONTEXT_FAILED' }))
+        }
+      }
       const runtimeInput = studentContext === undefined
         ? normalizedInput
         : { ...normalizedInput, studentContext }

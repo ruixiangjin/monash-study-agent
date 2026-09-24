@@ -138,6 +138,7 @@ export interface StudyAgentToolServices {
 /** Minimal lifecycle events emitted by a Study Agent run. */
 export type AgentEventType =
   | 'run_started'
+  | 'student_context_failed'
   | 'model_started'
   | 'model_completed'
   | 'answer_completed'
@@ -150,7 +151,7 @@ export type AgentEventType =
   | 'run_completed'
   | 'run_failed'
 
-export type AgentEventErrorCode = StudyRuntimeErrorCode | 'MEMORY_OBSERVATION_FAILED' | 'SUBAGENT_FAILED'
+export type AgentEventErrorCode = StudyRuntimeErrorCode | 'STUDENT_CONTEXT_FAILED' | 'MEMORY_OBSERVATION_FAILED' | 'SUBAGENT_FAILED'
 
 /** Product-owned event shape; raw prompts, responses, and secrets are intentionally absent. */
 export interface AgentEvent {
@@ -194,6 +195,7 @@ export type StudyRuntimeErrorCode =
   | 'MODEL_ERROR'
   | 'HARNESS_ERROR'
   | 'ABORTED'
+  | 'CONCURRENT_RUN'
   | 'UNKNOWN'
 
 /** Domain error boundary for provider and Harness failures. */
@@ -262,6 +264,7 @@ function runtimeErrorMessage(code: StudyRuntimeErrorCode): string {
     case 'MODEL_ERROR': return 'The Study Agent model did not return a usable answer.'
     case 'HARNESS_ERROR': return 'DeepSeek Harness could not complete the Study Agent turn.'
     case 'ABORTED': return 'The Study Agent turn was aborted.'
+    case 'CONCURRENT_RUN': return 'Another Study Agent turn is already running.'
     case 'UNKNOWN': return 'The Study Agent runtime failed unexpectedly.'
   }
 }
