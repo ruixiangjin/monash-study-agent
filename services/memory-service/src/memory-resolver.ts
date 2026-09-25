@@ -6,6 +6,7 @@ import type {
 } from '@monash-study/shared-types'
 
 import type { MemoryCandidate } from './memory-candidate.js'
+import { canonicalizeMemoryKey, createCanonicalMemoryKey } from './memory-key.js'
 import type { MemoryStore } from './memory-store.js'
 
 export interface ResolvedMemoryWrite {
@@ -45,37 +46,38 @@ export class MemoryResolver {
   }
 
   resolve(candidate: MemoryCandidate): MemoryDecision {
-    if (candidate.operation === 'NOOP') return { operation: 'NOOP' }
-    const existing = findExisting(this.#store, candidate)
+    const normalizedCandidate = normalizeMemoryKey(candidate)
+    if (normalizedCandidate.operation === 'NOOP') return { operation: 'NOOP' }
+    const existing = findExisting(this.#store, normalizedCandidate)
 
-    if (candidate.operation === 'DELETE') {
-      if (candidate.sourceType !== 'user_explicit'
-        || candidate.deleteIntent !== 'explicit_user_forget'
+    if (normalizedCandidate.operation === 'DELETE') {
+      if (normalizedCandidate.sourceType !== 'user_explicit'
+        || normalizedCandidate.deleteIntent !== 'explicit_user_forget'
         || existing === undefined) {
         return noop(existing)
       }
       return { operation: 'DELETE', memoryId: existing.memoryId }
     }
-    if (candidate.operation === 'RESOLVE') {
+    if (normalizedCandidate.operation === 'RESOLVE') {
       if (existing === undefined
         || (existing.kind !== 'weakness' && existing.kind !== 'study_progress')
-        || !hasSufficientPriority(candidate.sourceType, existing.sourceType)) {
+        || !hasSufficientPriority(normalizedCandidate.sourceType, existing.sourceType)) {
         return noop(existing)
       }
       return existing.status === 'resolved'
         ? noop(existing)
         : { operation: 'RESOLVE', memoryId: existing.memoryId }
     }
-    if (candidate.operation === 'ARCHIVE') {
+    if (normalizedCandidate.operation === 'ARCHIVE') {
       if (existing?.kind !== 'learning_episode') return noop(existing)
       return existing.status === 'archived'
         ? noop(existing)
         : { operation: 'ARCHIVE', memoryId: existing.memoryId }
     }
 
-    const write = requireWrite(candidate)
+    const write = requireWrite(normalizedCandidate)
     if (write.kind === 'learning_episode') {
-      return candidate.operation === 'ADD' ? { operation: 'ADD', write } : { operation: 'NOOP' }
+      return normalizedCandidate.operation === 'ADD' ? { operation: 'ADD', write } : { operation: 'NOOP' }
     }
     if (existing === undefined) return { operation: 'ADD', write }
     if (existing.kind === 'learning_episode' || !hasSufficientPriority(write.sourceType, existing.sourceType)) {
@@ -90,6 +92,17 @@ export class MemoryResolver {
     }
     return { operation: 'UPDATE', memoryId: existing.memoryId, write }
   }
+}
+
+function normalizeMemoryKey(candidate: MemoryCandidate): MemoryCandidate {
+  if (candidate.memoryKey === undefined
+    || candidate.kind === undefined
+    || candidate.kind === 'learning_episode') return candidate
+  const input = candidate.memoryKey.includes(':')
+    ? candidate.memoryKey
+    : createCanonicalMemoryKey(candidate.kind, candidate.memoryKey)
+  const memoryKey = canonicalizeMemoryKey(input)
+  return memoryKey === candidate.memoryKey ? candidate : { ...candidate, memoryKey }
 }
 
 function findExisting(store: MemoryStore, candidate: MemoryCandidate): StudentMemory | undefined {

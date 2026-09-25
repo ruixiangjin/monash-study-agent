@@ -1,7 +1,5 @@
 import { spawn } from 'node:child_process'
-import { existsSync } from 'node:fs'
-import { dirname, resolve } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { resolve } from 'node:path'
 
 import type { MemoryEmbeddingInput } from '@monash-study/shared-types'
 
@@ -11,8 +9,8 @@ export interface MemoryEmbeddingProvider {
 }
 
 export interface BgeM3MemoryEmbeddingProviderOptions {
-  readonly pythonPath?: string
-  readonly workerPath?: string
+  readonly pythonPath: string
+  readonly workerPath: string
   readonly model?: string
   readonly dimension?: number
   readonly maxTokens?: number
@@ -28,14 +26,9 @@ export class BgeM3MemoryEmbeddingProvider implements MemoryEmbeddingProvider {
   readonly #maxTokens: number
   readonly #batchSize: number
 
-  constructor(options: BgeM3MemoryEmbeddingProviderOptions = {}) {
-    const repositoryRoot = findRepositoryRoot(fileURLToPath(new URL('../../../', import.meta.url)))
-    this.#pythonPath = resolve(
-      options.pythonPath ?? resolve(repositoryRoot, 'services/knowledge-service/.venv/bin/python'),
-    )
-    this.#workerPath = resolve(
-      options.workerPath ?? resolve(repositoryRoot, 'services/memory-service/python/memory_embedding_worker.py'),
-    )
+  constructor(options: BgeM3MemoryEmbeddingProviderOptions) {
+    this.#pythonPath = resolve(options.pythonPath)
+    this.#workerPath = resolve(options.workerPath)
     this.model = options.model ?? 'BAAI/bge-m3'
     this.#dimension = options.dimension ?? 1024
     this.#maxTokens = options.maxTokens ?? 8192
@@ -89,17 +82,6 @@ function runWorker(pythonPath: string, workerPath: string, stdin: string): Promi
     })
     child.stdin.end(stdin)
   })
-}
-
-function findRepositoryRoot(moduleRoot: string): string {
-  let candidate = resolve(moduleRoot)
-  for (let depth = 0; depth < 4; depth += 1) {
-    if (existsSync(resolve(candidate, 'package.json'))) return candidate
-    const parent = dirname(candidate)
-    if (parent === candidate) break
-    candidate = parent
-  }
-  throw new Error(`Cannot locate repository root from ${moduleRoot}`)
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

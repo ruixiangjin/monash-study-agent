@@ -1,8 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto'
 import { DatabaseSync } from 'node:sqlite'
-import { resolve } from 'node:path'
 
-import { openRuntimeDatabase } from '@monash-study/runtime-database'
+import { initializeRuntimeDatabase, openRuntimeDatabase } from '@monash-study/runtime-database'
 import type {
   CanonicalMemoryKind,
   MemoryEmbedding,
@@ -18,10 +17,10 @@ import type {
 
 import { canonicalizeMemoryKey, kindForMemoryKey } from './memory-key.js'
 
-const DEFAULT_DATABASE_PATH = 'data/runtime/monash-study-agent.sqlite'
-
 export interface MemoryStoreOptions {
   readonly databasePath?: string
+  /** Only initialization/test fixtures may opt into creating the database. */
+  readonly initializeDatabase?: boolean
   readonly now?: () => Date
   readonly createId?: () => string
 }
@@ -74,7 +73,12 @@ export class MemoryStore {
   readonly #createId: () => string
 
   constructor(options: MemoryStoreOptions = {}) {
-    this.#database = openRuntimeDatabase(resolve(options.databasePath ?? DEFAULT_DATABASE_PATH))
+    if (options.databasePath === undefined) {
+      throw new Error('MemoryStore requires an explicit databasePath')
+    }
+    this.#database = options.initializeDatabase === true
+      ? initializeRuntimeDatabase(options.databasePath)
+      : openRuntimeDatabase(options.databasePath)
     this.#now = options.now ?? (() => new Date())
     this.#createId = options.createId ?? randomUUID
   }

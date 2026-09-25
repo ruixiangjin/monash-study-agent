@@ -229,7 +229,14 @@ export class StudyToolBridge {
             kind: result.memory?.kind ?? command.kind ?? null,
             scope: result.memory?.scope ?? command.scope ?? null,
           }
-        } catch {
+        } catch (error) {
+          console.error('[Memory] manage failed', {
+            operation: command.operation,
+            kind: command.kind ?? null,
+            scope: command.scope ?? null,
+            memoryKey: command.memoryKey ?? null,
+            error: errorDetails(error),
+          })
           throw new Error('Memory management failed')
         }
       }
@@ -237,6 +244,24 @@ export class StudyToolBridge {
         throw new Error(`Unknown Study Agent tool: ${request.name}`)
     }
   }
+}
+
+function errorDetails(error: unknown): { readonly name: string; readonly message: string; readonly stack?: string } {
+  if (error instanceof Error) {
+    return {
+      name: error.name,
+      message: redactDiagnostic(error.message),
+      ...(error.stack === undefined ? {} : { stack: redactDiagnostic(error.stack) }),
+    }
+  }
+  return { name: 'UnknownError', message: redactDiagnostic(String(error)) }
+}
+
+function redactDiagnostic(value: string): string {
+  return value
+    .replace(/(DEEPSEEK_API_KEY\s*[=:]\s*)[^\s\n]+/gi, '$1[REDACTED]')
+    .replace(/(authorization\s*:\s*bearer\s+)[^\s\n]+/gi, '$1[REDACTED]')
+    .replace(/(api[_-]?key\s*[=:]\s*)[^\s\n,}]+/gi, '$1[REDACTED]')
 }
 
 function consumeResearchAction(active: ActiveRun, maximum: number): void {

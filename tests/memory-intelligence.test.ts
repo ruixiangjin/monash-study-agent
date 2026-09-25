@@ -17,6 +17,7 @@ import {
   type MemoryCompletionProvider,
   type MemoryEmbeddingProvider,
 } from '@monash-study/memory-service'
+import { loadRuntimeConfig } from '@monash-study/knowledge-service'
 
 test('wires real model adapters without executing real model calls', async () => {
   let requestBody: Record<string, any> | undefined
@@ -33,7 +34,11 @@ test('wires real model adapters without executing real model calls', async () =>
   assert.equal(requestBody?.model, 'deepseek-flash')
   assert.deepEqual(requestBody?.thinking, { type: 'disabled' })
 
-  const embedding = new BgeM3MemoryEmbeddingProvider()
+  const runtimeConfig = loadRuntimeConfig()
+  const embedding = new BgeM3MemoryEmbeddingProvider({
+    pythonPath: runtimeConfig.pythonExecutable,
+    workerPath: runtimeConfig.workers.memoryEmbedding,
+  })
   assert.equal(embedding.model, 'BAAI/bge-m3')
 })
 
@@ -255,6 +260,35 @@ test('MemoryService observes candidates, recalls them, and supports explicit for
   assert.deepEqual(runtime.store.listEvents(memoryId).map((event) => event.operation), ['ADD', 'DELETE'])
 })
 
+test('MemoryService.manage canonicalizes an explicit unprefixed preference key', async (context) => {
+  const runtime = await setup(context)
+  const service = new MemoryService({
+    ...runtime,
+    extractor: { async extract() { return [] } },
+  })
+
+  const result = await service.manage({
+    operation: 'ADD',
+    kind: 'preference',
+    scope: 'global',
+    sourceType: 'user_explicit',
+    memoryKey: 'explanation_style',
+    content: 'Student prefers concise explanations when studying.',
+    importance: 0.8,
+    confidence: 0.95,
+    sourceSessionId: 'session-explicit',
+    sourceTurnId: 'turn-explicit',
+  })
+
+  const memoryId = requiredMemoryId(result.memory?.memoryId)
+  assert.equal(result.operation, 'ADD')
+  assert.equal(runtime.store.get(memoryId)?.memoryKey, 'preference:explanation-language')
+  assert.ok(runtime.store.getEmbedding(memoryId))
+  assert.deepEqual(runtime.store.listEvents(memoryId).map((event) => event.operation), ['ADD'])
+  assert.ok((await runtime.retriever.recall({ query: 'concise explanations', globalLimit: 10 }))
+    .some((item) => item.memory.memoryId === memoryId))
+})
+
 test('resolver executes Hard Delete only with explicit user forget intent', async (context) => {
   const runtime = await setup(context)
   const memoryId = await write(runtime, preferenceCandidate('Prefers Chinese explanations'))
@@ -348,6 +382,7 @@ async function setup(context: TestContext, episodeLimit = 50) {
   let id = 1
   const store = new MemoryStore({
     databasePath: join(root, 'runtime.sqlite'),
+    initializeDatabase: true,
     now: () => new Date('2026-09-22T10:00:00.000Z'),
     createId: () => `id-${id++}`,
   })

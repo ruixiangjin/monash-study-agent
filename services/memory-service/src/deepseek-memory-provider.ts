@@ -1,8 +1,3 @@
-import { existsSync } from 'node:fs'
-import { loadEnvFile } from 'node:process'
-import { dirname, resolve } from 'node:path'
-import { fileURLToPath } from 'node:url'
-
 export interface MemoryCompletionProvider {
   complete(systemPrompt: string, userPrompt: string): Promise<string>
 }
@@ -22,7 +17,6 @@ export class DeepSeekFlashMemoryProvider implements MemoryCompletionProvider {
   readonly #fetch: typeof fetch
 
   constructor(options: DeepSeekFlashMemoryProviderOptions = {}) {
-    loadProjectEnvironment(findRepositoryRoot(fileURLToPath(new URL('../../../', import.meta.url))))
     this.#apiKey = options.apiKey
     this.#baseUrl = (options.baseUrl ?? 'https://api.deepseek.com').replace(/\/$/, '')
     this.#model = options.model ?? 'deepseek-flash'
@@ -64,22 +58,6 @@ export class DeepSeekFlashMemoryProvider implements MemoryCompletionProvider {
     }
     return message.content
   }
-}
-
-function findRepositoryRoot(moduleRoot: string): string {
-  let candidate = resolve(moduleRoot)
-  for (let depth = 0; depth < 4; depth += 1) {
-    if (existsSync(resolve(candidate, 'package.json'))) return candidate
-    const parent = dirname(candidate)
-    if (parent === candidate) break
-    candidate = parent
-  }
-  throw new Error(`Cannot locate repository root from ${moduleRoot}`)
-}
-
-function loadProjectEnvironment(repositoryRoot: string): void {
-  const envPath = resolve(repositoryRoot, '.env')
-  if (existsSync(envPath)) loadEnvFile(envPath)
 }
 
 function isRecord(value: unknown): value is Record<string, any> {
