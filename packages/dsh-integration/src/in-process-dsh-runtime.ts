@@ -28,9 +28,14 @@ declare module '@deepseek-ai/cordis' {
 }
 
 const PRESET = 'monash-study-agent'
+let currentProcessToolBridge: StudyToolBridge | undefined
 const DSH_MODELS: Readonly<Record<ModelProfile, { readonly provider: string; readonly model: string }>> = {
   fast: { provider: 'deepseek-official', model: 'deepseek-v4-flash' },
   strong: { provider: 'deepseek-official', model: 'deepseek-v4-pro' },
+}
+
+export interface InProcessDshRuntimeConfig {
+  readonly applicationRoot?: string
 }
 
 /** Product adapter over the Agent and Session services already owned by DSH Web. */
@@ -39,20 +44,28 @@ export class InProcessDshRuntime extends Service implements StudyAgentRuntime {
 
   private readonly root: Context
   private readonly sessionController: SessionController
+  private readonly applicationRoot: string
   private toolBridge: StudyToolBridge | undefined
   private configured = false
   private activeRunId: string | undefined
   private closed = false
 
-  constructor(ctx: Context) {
+  constructor(ctx: Context, config: InProcessDshRuntimeConfig = {}) {
     super(ctx, 'monashStudyRuntime')
     this.root = ctx
     this.sessionController = ctx.sessionController
+    const applicationRoot = config.applicationRoot ?? process.env.MONASH_STUDY_AGENT_ROOT
+    if (applicationRoot === undefined) {
+      throw new Error('InProcessDshRuntime requires an explicit applicationRoot')
+    }
+    this.applicationRoot = resolve(applicationRoot)
   }
 
   configure(toolServices: StudyAgentToolServices): this {
     if (this.configured) return this
-    this.toolBridge = new StudyToolBridge({ services: toolServices })
+    const toolBridge = new StudyToolBridge({ services: toolServices })
+    this.toolBridge = toolBridge
+    currentProcessToolBridge = toolBridge
     this.configured = true
     return this
   }
@@ -61,8 +74,29 @@ export class InProcessDshRuntime extends Service implements StudyAgentRuntime {
     if (agent === undefined) throw new Error(`Study Agent tool ${name} requires a live Agent`)
     const active = this.root.agents.get(agent.id)
     if (active !== agent) throw new Error(`Study Agent tool ${name} lost its Agent owner`)
-    return this.toolBridge?.executeDirect(name, args)
-      ?? Promise.reject(new Error('Study Agent services are not configured'))
+    let toolBridge = this.currentToolBridge()
+    if (toolBridge === undefined) {
+      const uiService = this.root.get('monashStudyUi') as { ensureApplication(): Promise<void> } | undefined
+      await uiService?.ensureApplication()
+      toolBridge = this.currentToolBridge()
+    }
+    if (toolBridge === undefined) throw new Error('Study Agent services are not configured')
+
+    const ownsRestoredRun = !toolBridge.hasActiveRun()
+    const restoredRunId = ownsRestoredRun ? `restored-${agent.id}-${randomUUID()}` : undefined
+    if (restoredRunId !== undefined) {
+      const course = isRecord(args) && typeof args.course === 'string' ? args.course : undefined
+      toolBridge.begin(restoredRunId, {
+        query: name,
+        ...(course === undefined ? {} : { courseContext: { courseCode: course } }),
+        conversation: { sessionId: agent.id, conversationId: agent.id },
+      })
+    }
+    try {
+      return await toolBridge.executeDirect(name, args)
+    } finally {
+      if (restoredRunId !== undefined) toolBridge.end(restoredRunId)
+    }
   }
 
   async runTurn(input: StudyTurnInput, options: StudyTurnOptions = {}): Promise<StudyTurnResult> {
@@ -72,7 +106,8 @@ export class InProcessDshRuntime extends Service implements StudyAgentRuntime {
     if (input.query.trim().length === 0) throw new StudyRuntimeError('INVALID_INPUT', 'Study Agent query must not be empty.')
     if (options.signal?.aborted === true) throw new StudyRuntimeError('ABORTED', 'The Study Agent turn was aborted before Harness execution.')
     if (this.closed) throw new StudyRuntimeError('HARNESS_ERROR', 'DeepSeek Harness could not complete the Study Agent turn.')
-    if (!this.configured || this.toolBridge === undefined) throw new StudyRuntimeError('HARNESS_ERROR', 'Study Agent services are not configured.')
+    const toolBridge = this.currentToolBridge()
+    if (toolBridge === undefined) throw new StudyRuntimeError('HARNESS_ERROR', 'Study Agent services are not configured.')
     if (this.activeRunId !== undefined) throw new StudyRuntimeError('CONCURRENT_RUN', 'Another Study Agent turn is already running.')
 
     const requestedSessionId = input.conversation?.sessionId as SessionId | undefined
@@ -84,7 +119,7 @@ export class InProcessDshRuntime extends Service implements StudyAgentRuntime {
     try {
       const created = await this.sessionController.create({
         ...(requestedSessionId === undefined ? {} : { sessionId: requestedSessionId }),
-        cwd: resolve(process.cwd()),
+        cwd: this.applicationRoot,
         agentPreset: PRESET,
       })
       const sessionId = created.sessionId
@@ -92,7 +127,7 @@ export class InProcessDshRuntime extends Service implements StudyAgentRuntime {
       if (agent === undefined) throw new StudyRuntimeError('SESSION_ERROR', 'DSH did not publish the Study Agent session.')
       const model = DSH_MODELS[modelProfile]
       await this.sessionController.selectModel({ sessionId, ...model })
-      this.toolBridge.begin(runId, { ...input, conversation: { sessionId, conversationId: sessionId } })
+      toolBridge.begin(runId, { ...input, conversation: { sessionId, conversationId: sessionId } })
       await emit(eventSink, event(runId, 'model_started', modelProfile, sessionId))
       const prompt = renderMainStudyAgentPrompt(input, { toolsEnabled: true })
       await this.sessionController.prompt({
@@ -109,7 +144,7 @@ export class InProcessDshRuntime extends Service implements StudyAgentRuntime {
       if (answer.trim().length === 0) throw new StudyRuntimeError('MODEL_ERROR', 'The Study Agent model returned an empty answer.')
       const turnId = turnEnd === undefined || !isRecord(turnEnd.data) ? undefined : turnEnd.data['turn']
       if (typeof turnId !== 'number') throw new StudyRuntimeError('HARNESS_ERROR', 'DeepSeek Harness returned no turn identity.')
-      snapshot = this.toolBridge.snapshot(runId)
+      snapshot = toolBridge.snapshot(runId)
       const usedResearch = events.some(item => item.type === 'tool/call' && isRecord(item.data) && item.data['name'] === 'research_subagent')
       await emit(eventSink, event(runId, 'model_completed', modelProfile, sessionId, String(turnId)))
       await emit(eventSink, event(runId, 'answer_completed', modelProfile, sessionId, String(turnId)))
@@ -129,7 +164,7 @@ export class InProcessDshRuntime extends Service implements StudyAgentRuntime {
       if (error instanceof StudyRuntimeError) throw error
       throw new StudyRuntimeError('HARNESS_ERROR', 'DeepSeek Harness could not complete the Study Agent turn.', { cause: error })
     } finally {
-      this.toolBridge.end(runId)
+      toolBridge.end(runId)
       if (this.activeRunId === runId) this.activeRunId = undefined
     }
   }
@@ -138,7 +173,14 @@ export class InProcessDshRuntime extends Service implements StudyAgentRuntime {
     if (this.closed) return
     this.closed = true
     this.activeRunId = undefined
-    await this.toolBridge?.close()
+    const toolBridge = this.toolBridge
+    if (toolBridge !== undefined && currentProcessToolBridge === toolBridge) currentProcessToolBridge = undefined
+    await toolBridge?.close()
+  }
+
+  /** Resolve the current-process binding even when a restored Agent has a scoped runtime instance. */
+  private currentToolBridge(): StudyToolBridge | undefined {
+    return currentProcessToolBridge ?? this.toolBridge
   }
 }
 

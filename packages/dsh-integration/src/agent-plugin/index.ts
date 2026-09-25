@@ -84,7 +84,7 @@ function register<const S extends ParameterSchemaSpec>(
       schema: { type: 'object', additionalProperties: true },
       render: (_args, value) => [{ type: 'text', text: JSON.stringify(value) }],
     },
-    execute: (args, exec) => ctx.monashStudyRuntime.executeTool(
+    execute: (args, exec) => ctx.root.monashStudyRuntime.executeTool(
       definition.name,
       args,
       exec.agent,

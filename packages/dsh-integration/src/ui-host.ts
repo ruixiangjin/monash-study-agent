@@ -11,7 +11,7 @@ export const name = 'monash-study-ui'
 
 /** Register only the UI Host boundary; the Study runtime is created on first turn. */
 export function apply(ctx: Context, config: Config): void {
-  ctx.plugin(InProcessDshRuntime)
+  ctx.plugin(InProcessDshRuntime, config)
   ctx.plugin(MonashStudyUiService, config)
 }
 

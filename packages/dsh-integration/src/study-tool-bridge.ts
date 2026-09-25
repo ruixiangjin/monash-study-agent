@@ -102,6 +102,10 @@ export class StudyToolBridge {
     if (this.#active?.runId === runId) this.#active = undefined
   }
 
+  hasActiveRun(): boolean {
+    return this.#active !== undefined
+  }
+
   /** Execute a tool in-process for the Agent that owns the active Study turn. */
   async executeDirect(name: string, args: unknown): Promise<unknown> {
     const active = this.#active

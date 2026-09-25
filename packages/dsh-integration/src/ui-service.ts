@@ -78,6 +78,11 @@ export class MonashStudyUiService extends TypertRemoteService {
     }
   }
 
+  /** Ensure restored DSH Agent tool calls have the same product services as UI turns. */
+  async ensureApplication(): Promise<void> {
+    await this.application.get()
+  }
+
   /** List course summaries derived from the existing Resource Manifest. */
   @Remote
   async listCourses(signal: AbortSignal): Promise<readonly CourseSummary[]> {
