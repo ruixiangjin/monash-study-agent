@@ -1,8 +1,10 @@
 import { spawn } from 'node:child_process'
-import { mkdir, readFile, readdir, unlink, writeFile } from 'node:fs/promises'
+import { readFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 
+import { ensureDeclarativeWebProfile } from './dsh-web-profile.js'
+import { assertDshPackageGraph, defaultWebProfileDirectory, formatDshPackageGraph, inspectDshPackageGraph } from './dsh-package-graph.js'
 import { resolveUiPaths, verifyUiPaths } from './ui-paths.js'
 import { verifyDshUiPackage } from './verify-dsh-ui-package.js'
 
@@ -15,24 +17,11 @@ await run('pnpm', ['run', 'build'], paths.productRoot)
 
 const packageDirectory = join(paths.productRoot, 'packages/dsh-ui-plugin')
 await verifyDshUiPackage(packageDirectory)
-await allowDshRuntimeBuilds()
-const packDirectory = join(dshHome, 'monash-study-agent/packages')
-await mkdir(packDirectory, { recursive: true })
-for (const name of await readdir(packDirectory)) {
-  if (name.startsWith('monash-study-dsh-ui-plugin-') && name.endsWith('.tgz')) {
-    await unlink(join(packDirectory, name))
-  }
-}
-
-await run('pnpm', ['pack', '--pack-destination', packDirectory], packageDirectory)
-const archiveNames = (await readdir(packDirectory)).filter(name => name.endsWith('.tgz'))
-if (archiveNames.length !== 1) throw new Error(`Expected one UI plugin tarball; found ${archiveNames.length}.`)
-const archivePath = join(packDirectory, archiveNames[0] as string)
-await run(process.execPath, [paths.dshLauncher, 'plugin', '--profile', 'web', 'add', archivePath], paths.dshRoot)
-
-const installedPackage = join(webProfile, 'node_modules/@monash-study/dsh-ui-plugin')
-await verifyDshUiPackage(installedPackage)
+await ensureDeclarativeWebProfile(webProfile)
 await verifyProfile(webProfile, 'Web')
+const dshPackageGraph = inspectDshPackageGraph(paths, webProfile)
+process.stdout.write(`${formatDshPackageGraph(dshPackageGraph)}\n`)
+assertDshPackageGraph(dshPackageGraph)
 process.stdout.write('Monash Study UI setup ready\n')
 
 async function run(command: string, args: readonly string[], cwd: string): Promise<void> {
@@ -42,26 +31,6 @@ async function run(command: string, args: readonly string[], cwd: string): Promi
     child.once('exit', code => resolve(code ?? 1))
   })
   if (exitCode !== 0) throw new Error(`${command} exited with code ${exitCode}.`)
-}
-
-async function allowDshRuntimeBuilds(): Promise<void> {
-  const workspacePath = join(webProfile, 'pnpm-workspace.yaml')
-  const packages = [
-    '@deepseek-ai/dsh-subprocess-local',
-    '@google/genai',
-    'koffi',
-    'node-pty',
-    'protobufjs',
-  ] as const
-  let source = await readFile(workspacePath, 'utf8')
-  if (!/^allowBuilds:/mu.test(source)) source = `${source.trimEnd()}\nallowBuilds:\n`
-  for (const packageName of packages) {
-    const quotedKey = packageName.startsWith('@') ? `'${packageName}'` : packageName
-    const entry = new RegExp(`^  ${quotedKey.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&')}:.*$`, 'mu')
-    if (entry.test(source)) source = source.replace(entry, `  ${quotedKey}: true`)
-    else source = `${source.trimEnd()}\n  ${quotedKey}: true\n`
-  }
-  await writeFile(workspacePath, source)
 }
 
 async function verifyProfile(profileDirectory: string, label: string): Promise<void> {

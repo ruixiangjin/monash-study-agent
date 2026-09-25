@@ -11,3 +11,4 @@ __pycache__/
 data/runtime/
 data/normalized/
 config/sources.local.json
+vendor/deepseek-harness/.monash-study/

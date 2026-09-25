@@ -25,13 +25,15 @@ export async function verifyDshUiPackage(packageDirectory: string): Promise<Pack
   const hostArtifactPath = join(packageDirectory, 'lib/index.js')
   const hostArtifact = await readFile(hostArtifactPath, 'utf8')
   const clientArtifact = await readFile(join(packageDirectory, 'lib/client.js'), 'utf8')
+  const agentArtifact = await readFile(join(packageDirectory, 'lib/agent-plugin.js'), 'utf8')
   const declared = new Set([
     ...Object.keys(manifest.dependencies ?? {}),
     ...Object.keys(manifest.peerDependencies ?? {}),
   ])
   const hostExternals = externalPackages(hostArtifact)
   const clientExternals = externalPackages(clientArtifact)
-  const undeclared = [...new Set([...hostExternals, ...clientExternals])]
+  const agentExternals = externalPackages(agentArtifact)
+  const undeclared = [...new Set([...hostExternals, ...clientExternals, ...agentExternals])]
     .filter(packageName => !declared.has(packageName))
 
   if (manifest.name !== CLIENT_MODULE_ID) {
@@ -53,10 +55,15 @@ export async function verifyDshUiPackage(packageDirectory: string): Promise<Pack
     '@deepseek-ai/dsh-sdk-protocol',
     '@deepseek-ai/dsh-session',
   ]
+  const directRuntimeDependencies = requiredRuntimeDependencies
+    .filter(packageName => packageName in (manifest.dependencies ?? {}))
+  if (directRuntimeDependencies.length > 0) {
+    throw new Error(`DSH runtime packages must remain profile-provided peers, not plugin dependencies: ${directRuntimeDependencies.join(', ')}`)
+  }
   const missingRuntimeDependencies = requiredRuntimeDependencies
-    .filter(packageName => !(packageName in (manifest.dependencies ?? {})))
+    .filter(packageName => !(packageName in (manifest.peerDependencies ?? {})))
   if (missingRuntimeDependencies.length > 0) {
-    throw new Error(`SDK runtime peer closure must be direct dependencies: ${missingRuntimeDependencies.join(', ')}`)
+    throw new Error(`SDK runtime peer closure must be declared peers: ${missingRuntimeDependencies.join(', ')}`)
   }
   const unbundledProductPackages = hostExternals.filter(name => name.startsWith('@monash-study/'))
   if (unbundledProductPackages.length > 0) {

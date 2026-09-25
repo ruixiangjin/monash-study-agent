@@ -7,3 +7,13 @@
         trust: system
     includeShippedRoot: true
     includeUserRoot: true
+
+- insert:
+    - id: monash-study-ui
+      # The product plugin is staged inside the vendored Web bundle so its
+      # external DSH imports resolve through the one repository-local graph.
+      name: '../vendor/deepseek-harness/.monash-study/dsh-ui-plugin/lib/index.js'
+      config:
+        applicationRoot: !!js process.env.MONASH_STUDY_AGENT_ROOT
+        runtimeConfigPath: !!js process.env.MONASH_STUDY_AGENT_RUNTIME_CONFIG
+        resourceManifestPath: !!js process.env.MONASH_STUDY_AGENT_RESOURCE_MANIFEST
