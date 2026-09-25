@@ -79,6 +79,22 @@ pnpm agent-smoke -- --course FIT2109 --query "Briefly explain what a Git branch 
 pnpm agent-tools-smoke
 ```
 
+`pnpm agent-smoke` is currently a legacy SDK/model-only smoke. It does not
+prove the Single Runtime Web path, Knowledge retrieval, or product tools.
+The production Web path is the vendored DSH Web profile using
+`InProcessDshRuntime` and `createStudyApplication()`.
+
+### Development Start
+
+Terminal:
+
+```sh
+pnpm ui
+```
+
+macOS: double-click `Start Monash Study Agent.command`. It uses the existing
+Node.js, pnpm, and `node_modules`; it does not install or upgrade dependencies.
+
 `config/sources.local.json` identifies the current machine's local course directories and is ignored by Git. Use `config/sources.example.json` as the portable template when configuring another machine. Scanning reads source files and downloader manifests without modifying the course libraries. Non-secret LightRAG runtime settings are shared through `config/runtime.json`; `.env` contains only `DEEPSEEK_API_KEY`.
 
 ### LightRAG model runtime

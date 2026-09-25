@@ -73,7 +73,8 @@ MonashStudyPage
   → DSH Client Remote
   → MonashStudyUiService
   → StudyApplication.runTurn()
-  → StudyController / DeepSeek Harness / Knowledge / Memory
+  → StudyController / InProcessDshRuntime / DSH Web Agent
+  → Knowledge / Memory / product tools
 ```
 
 `packages/dsh-integration` owns the DSH-specific Host service and the Remote
@@ -189,22 +190,40 @@ git diff --check
 
 The UI-specific tests verify every AgentEvent mapping, stable error labels,
 Evidence provenance/locator preservation, Remote endpoint descriptors, and the
-sidebar/main registration lifecycle. A real DSH UI run still requires a local
-web profile with the plugin bundle enabled and the normal local runtime
-configuration. The bundled profile patch reads the product paths from
-`MONASH_STUDY_AGENT_RUNTIME_CONFIG` and
+sidebar/main registration lifecycle. A real DSH UI run uses the repository's
+vendored DSH CLI, a declarative profile containing only the DSH base/web
+bundles, and the local patch in `config/single-runtime.cordis.patch.yml`.
+That patch loads the built Monash plugin from the repository-local staging
+directory under `vendor/deepseek-harness/.monash-study`; it is not installed
+into `~/.dsh/profiles/web/node_modules`. The patch reads the product
+application root and paths from `MONASH_STUDY_AGENT_ROOT`,
+`MONASH_STUDY_AGENT_RUNTIME_CONFIG`, and
 `MONASH_STUDY_AGENT_RESOURCE_MANIFEST`; this keeps profile-local configuration
-out of the product bundle. That flow is intentionally separate from unit tests
+out of the product bundle. The DSH profile directory is never used as the
+Monash application root. That flow is intentionally separate from unit tests
 because it uses the user's local course manifest and model credentials.
 
-The final local integration attempt used a uniquely named, freshly packed
-tarball and those two environment variables. The installed host bundle passed
-Node syntax validation, and `--dump-config` showed the `monash-study-ui` entry
-and both path expressions. The DSH web launcher nevertheless reported
-`monash-study-ui (@monash-study/dsh-ui-plugin): failed to import`; the launcher
-did not expose the nested import stack. This is recorded as an unresolved
-profile-local activation boundary, not as a passing browser UI check. No
-further cache-bust or DSH-core changes are part of Round 1.
+The current Web launcher was re-run on 2026-09-22 with the product bundle and
+explicit runtime paths. Plugin/preset registration is visible in the DSH Web
+UI, and startup provenance resolves to the product application root, product
+runtime SQLite, product LightRAG root, normalized-document root, worker root,
+and resource manifest. No profile-local root is used for those product paths.
+
+The post-fix browser verification completed the bounded A/B/C checks. Fresh A
+created `session-bb7d64d7-2719-4302-b5d2-131320aa13ac` in FIT2109; the first
+question called `search_knowledge`, executed the LightRAG query, showed
+Evidence, and completed. Same-process B completed in the same session.
+After a normal Web restart, C restored the session history and a third turn
+completed without `entry._await`.
+
+The restarted third turn also exposed the remaining product boundary: its
+fresh follow-up search reported `Study Agent services are not configured`, so
+the answer reused Evidence from the earlier turns. The exact source boundary
+is `packages/dsh-integration/src/in-process-dsh-runtime.ts:75`, where
+`InProcessDshRuntime.executeTool()` has no restored `toolBridge`. Thus the
+vendored package graph and session resume pass, while full post-restart browser
+Knowledge E2E remains pending. No DSH-core change, dependency upgrade, profile
+cleanup, re-index, or Memory work was performed.
 
 ## Known Round 1 limitations
 
@@ -216,5 +235,6 @@ further cache-bust or DSH-core changes are part of Round 1.
   generator. Its descriptors and strict codecs mirror the generated
   `typert.remote-client` contract and are covered by tests.
 - The current page keeps UI conversation state in the browser for the active
-  page. Harness conversation continuity remains owned by the returned
-  `StudyConversationRef`; no duplicate product conversation store is added.
+  page. Current Web session continuity is delegated to the DSH Web
+  `SessionController` through `InProcessDshRuntime`; the historical SDK
+  `DeepSeekHarnessRuntime` continuity smoke is a separate Legacy path.
