@@ -1,5 +1,4 @@
 import { readFile } from 'node:fs/promises'
-import { resolve } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import { Remote, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
 import { loadRuntimeConfig } from '@monash-study/knowledge-service'
@@ -21,6 +20,7 @@ import { InProcessDshRuntime } from './in-process-dsh-runtime.js'
 
 /** Configuration supplied by the DSH profile for the UI integration. */
 export interface MonashStudyUiConfig {
+  readonly applicationRoot?: string
   readonly runtimeConfigPath?: string
   readonly resourceManifestPath?: string
 }
@@ -37,13 +37,17 @@ export class MonashStudyUiService extends TypertRemoteService {
   constructor(ctx: Context, config: MonashStudyUiConfig = {}) {
     super(ctx, 'monashStudyUi', { namespace: 'monashStudy' })
     this.runtimeConfigPath = config.runtimeConfigPath
-    const runtimeConfig = loadRuntimeConfig(config.runtimeConfigPath)
+    const runtimeConfig = loadRuntimeConfig({
+      ...(config.applicationRoot === undefined ? {} : { applicationRoot: config.applicationRoot }),
+      ...(config.runtimeConfigPath === undefined ? {} : { configPath: config.runtimeConfigPath }),
+      ...(config.resourceManifestPath === undefined ? {} : { resourceManifestPath: config.resourceManifestPath }),
+    })
     this.manifestPath = config.resourceManifestPath
-      ?? resolve(runtimeConfig.repositoryRoot, 'resources/resources.json')
+      ?? runtimeConfig.resourceManifestPath
     this.application = new LazyStudyApplication(() => createStudyApplication({
-      ...(this.runtimeConfigPath === undefined ? {} : { configPath: this.runtimeConfigPath }),
+      runtimeConfig,
       resourceManifestPath: this.manifestPath,
-      runtimeFactory: toolServices => ctx.monashStudyRuntime.configure(toolServices),
+      runtimeFactory: toolServices => ctx.root.monashStudyRuntime.configure(toolServices),
     }))
     ctx.effect(() => () => this.close(), 'monash-study-ui: StudyApplication lifecycle')
   }

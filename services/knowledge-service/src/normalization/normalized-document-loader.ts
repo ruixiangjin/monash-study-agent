@@ -1,5 +1,4 @@
 import { readdir, readFile } from 'node:fs/promises'
-import { fileURLToPath } from 'node:url'
 import { join, resolve } from 'node:path'
 
 import type {
@@ -24,8 +23,10 @@ export class NormalizedDocumentLoader {
   readonly #normalizedRoot: string
 
   constructor(options: NormalizedDocumentLoaderOptions = {}) {
-    const repositoryRoot = fileURLToPath(new URL('../../../../', import.meta.url))
-    this.#normalizedRoot = resolve(options.normalizedRoot ?? join(repositoryRoot, 'data', 'normalized'))
+    if (options.normalizedRoot === undefined) {
+      throw new Error('NormalizedDocumentLoader requires an explicit normalizedRoot')
+    }
+    this.#normalizedRoot = resolve(options.normalizedRoot)
   }
 
   /** Load all persisted documents, optionally applying exact metadata filters. */

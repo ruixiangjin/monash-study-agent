@@ -1,8 +1,5 @@
-import { existsSync } from 'node:fs'
 import { spawn } from 'node:child_process'
 import { resolve } from 'node:path'
-import { fileURLToPath } from 'node:url'
-import { loadEnvFile } from 'node:process'
 
 import type { NormalizedDocument } from '@monash-study/shared-types'
 import { loadRuntimeConfig, type LoadedRuntimeConfig } from '../runtime/runtime-config.js'
@@ -15,6 +12,10 @@ import {
 export interface LightRAGWorkerClientOptions {
   readonly workingDir?: string
   readonly configPath?: string
+  readonly applicationRoot?: string
+  readonly runtimeConfig?: LoadedRuntimeConfig
+  readonly pythonPath?: string
+  readonly workerPath?: string
 }
 
 export interface LightRAGHealthResult {
@@ -142,12 +143,12 @@ export class LightRAGWorkerClient {
   readonly #runtimeConfig: LoadedRuntimeConfig
 
   constructor(options: LightRAGWorkerClientOptions = {}) {
-    const moduleRelativeRoot = fileURLToPath(new URL('../../../../', import.meta.url))
-    const repositoryRoot = findRepositoryRoot(moduleRelativeRoot)
-    this.#runtimeConfig = loadRuntimeConfig(options.configPath)
-    loadProjectEnvironment(repositoryRoot)
-    this.#pythonPath = resolve(repositoryRoot, 'services/knowledge-service/.venv/bin/python')
-    this.#workerPath = resolve(repositoryRoot, 'services/knowledge-service/python/lightrag_worker.py')
+    this.#runtimeConfig = options.runtimeConfig ?? loadRuntimeConfig({
+      ...(options.configPath === undefined ? {} : { configPath: options.configPath }),
+      ...(options.applicationRoot === undefined ? {} : { applicationRoot: options.applicationRoot }),
+    })
+    this.#pythonPath = resolve(options.pythonPath ?? this.#runtimeConfig.pythonExecutable)
+    this.#workerPath = resolve(options.workerPath ?? this.#runtimeConfig.workers.lightrag)
     this.#workingDir = resolve(options.workingDir ?? this.#runtimeConfig.lightrag.workingRoot)
   }
 
@@ -223,6 +224,7 @@ export class LightRAGWorkerClient {
   ): Promise<unknown> {
     const request = createWorkerRequest(command, {
       runtimeConfigPath: this.#runtimeConfig.configPath,
+      applicationRoot: this.#runtimeConfig.applicationRoot,
       workingDir: this.#workingDir,
       ...extra,
     })
@@ -236,18 +238,6 @@ export class LightRAGWorkerClient {
     }
     return { ok: true, command, ...response.result }
   }
-}
-
-function findRepositoryRoot(moduleRelativeRoot: string): string {
-  if (existsSync(resolve(moduleRelativeRoot, 'package.json'))) return moduleRelativeRoot
-  const compiledRoot = resolve(moduleRelativeRoot, '..')
-  if (existsSync(resolve(compiledRoot, 'package.json'))) return compiledRoot
-  throw new Error(`Cannot locate repository root from ${moduleRelativeRoot}`)
-}
-
-function loadProjectEnvironment(repositoryRoot: string): void {
-  const envPath = resolve(repositoryRoot, '.env')
-  if (existsSync(envPath)) loadEnvFile(envPath)
 }
 
 async function runWorker(

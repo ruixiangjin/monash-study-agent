@@ -1,5 +1,4 @@
 import { readFile } from 'node:fs/promises'
-import { resolve } from 'node:path'
 
 import {
   DeepSeekFlashMemoryCandidateExtractor,
@@ -19,10 +18,9 @@ import {
   loadRuntimeConfig,
   type LoadedRuntimeConfig,
 } from '@monash-study/knowledge-service'
-import {
-  DeepSeekHarnessRuntime,
-  type DeepSeekHarnessDriver,
-  type DeepSeekHarnessRuntimeOptions,
+import type {
+  DeepSeekHarnessDriver,
+  DeepSeekHarnessRuntimeOptions,
 } from '@monash-study/dsh-integration'
 import {
   DefaultModelPolicy,
@@ -46,6 +44,7 @@ import { StudyController, type StudyControllerOptions } from '@monash-study/stud
 import type { ResourceManifest } from '@monash-study/shared-types'
 
 export interface StudyApplicationOptions {
+  readonly applicationRoot?: string
   readonly configPath?: string
   readonly runtimeConfig?: LoadedRuntimeConfig
   readonly knowledgeService?: KnowledgeService | null
@@ -54,6 +53,8 @@ export interface StudyApplicationOptions {
   readonly memoryService?: MemoryService | null
   readonly memoryStore?: MemoryStore
   readonly memoryDatabasePath?: string
+  /** Explicit initialization is intended for first-run setup and test fixtures only. */
+  readonly initializeMemoryDatabase?: boolean
   readonly memoryEmbeddingProvider?: MemoryEmbeddingProvider
   readonly memoryCompletionProvider?: MemoryCompletionProvider
   readonly memoryReader?: StudyMemoryReader | null
@@ -85,24 +86,30 @@ export interface StudyApplication {
 export async function createStudyApplication(
   options: StudyApplicationOptions = {},
 ): Promise<StudyApplication> {
-  const runtimeConfig = options.runtimeConfig ?? loadRuntimeConfig(options.configPath)
+  const runtimeConfig = options.runtimeConfig ?? loadRuntimeConfig({
+    ...(options.applicationRoot === undefined ? {} : { applicationRoot: options.applicationRoot }),
+    ...(options.configPath === undefined ? {} : { configPath: options.configPath }),
+    ...(options.resourceManifestPath === undefined ? {} : { resourceManifestPath: options.resourceManifestPath }),
+  })
   const knowledgeService = options.knowledgeService === undefined
-    ? new LightRAGKnowledgeService({ configPath: runtimeConfig.configPath })
+    ? new LightRAGKnowledgeService({ runtimeConfig })
     : options.knowledgeService
   const resourceReader = options.resourceReader === undefined
-    ? await createResourceReader(options.resourceManifestPath ?? resolve(runtimeConfig.repositoryRoot, 'resources/resources.json'))
+    ? await createResourceReader(options.resourceManifestPath ?? runtimeConfig.resourceManifestPath)
     : options.resourceReader
 
   const memoryStore = options.memoryService === null
     ? undefined
     : options.memoryStore ?? new MemoryStore({
       databasePath: options.memoryDatabasePath ?? runtimeConfig.lightrag.sqlitePath,
+      ...(options.initializeMemoryDatabase === true ? { initializeDatabase: true } : {}),
     })
   const memoryService = options.memoryService === undefined
     ? createMemoryService(
       memoryStore,
       options.memoryEmbeddingProvider,
       options.memoryCompletionProvider,
+      runtimeConfig,
     )
     : options.memoryService
   const memoryReader = options.memoryReader === undefined ? memoryService : options.memoryReader
@@ -113,13 +120,9 @@ export async function createStudyApplication(
     ...(memoryReader === null || memoryReader === undefined ? {} : { memoryReader }),
     ...(memoryManager === null || memoryManager === undefined ? {} : { memoryManager }),
   }
-  const runtime = options.runtime ?? options.runtimeFactory?.(toolServices) ?? new DeepSeekHarnessRuntime({
-    ...(options.harness === undefined ? {} : { harness: options.harness }),
-    ...(options.createHarness === undefined ? {} : { createHarness: options.createHarness }),
-    ...(options.harnessOptions === undefined ? {} : { harnessOptions: options.harnessOptions }),
-    ...(options.promptPatchPath === undefined ? {} : { promptPatchPath: options.promptPatchPath }),
-    toolServices,
-  })
+  const runtime = options.runtime
+    ?? options.runtimeFactory?.(toolServices)
+    ?? await createLegacyRuntime(options, runtimeConfig.applicationRoot, toolServices)
   const studentContextBuilder = options.studentContextBuilder === undefined
     ? memoryReader === undefined || memoryReader === null ? undefined : new MemoryStudentContextBuilder(memoryReader)
     : options.studentContextBuilder
@@ -172,13 +175,34 @@ export async function createStudyApplication(
   }
 }
 
+/** Keep the historical SDK runtime off the current Web module graph. */
+async function createLegacyRuntime(
+  options: StudyApplicationOptions,
+  applicationRoot: string,
+  toolServices: StudyAgentToolServices,
+): Promise<StudyAgentRuntime> {
+  const { DeepSeekHarnessRuntime } = await import('@monash-study/dsh-integration')
+  return new DeepSeekHarnessRuntime({
+    ...(options.harness === undefined ? {} : { harness: options.harness }),
+    ...(options.createHarness === undefined ? {} : { createHarness: options.createHarness }),
+    ...(options.harnessOptions === undefined ? {} : { harnessOptions: options.harnessOptions }),
+    ...(options.promptPatchPath === undefined ? {} : { promptPatchPath: options.promptPatchPath }),
+    applicationRoot,
+    toolServices,
+  })
+}
+
 function createMemoryService(
   store: MemoryStore | undefined,
   embeddingProvider: MemoryEmbeddingProvider | undefined,
   completionProvider: MemoryCompletionProvider | undefined,
+  runtimeConfig: LoadedRuntimeConfig,
 ): MemoryService | undefined {
   if (store === undefined) return undefined
-  const embedding = embeddingProvider ?? new BgeM3MemoryEmbeddingProvider()
+  const embedding = embeddingProvider ?? new BgeM3MemoryEmbeddingProvider({
+    pythonPath: runtimeConfig.pythonExecutable,
+    workerPath: runtimeConfig.workers.memoryEmbedding,
+  })
   return new MemoryService({
     store,
     extractor: new DeepSeekFlashMemoryCandidateExtractor(

@@ -7,14 +7,14 @@ import { basename, extname, join } from 'node:path'
 import test, { type TestContext } from 'node:test'
 
 import type { Resource } from '@monash-study/shared-types'
-import { NormalizationService } from '@monash-study/knowledge-service'
+import { loadRuntimeConfig, NormalizationService } from '@monash-study/knowledge-service'
 
 test('normalizes a PDF text layer through Docling', { timeout: 300_000 }, async (context) => {
   const directory = await testDirectory(context)
   const path = join(directory, 'FIT2109 Week 05 Native.pdf')
   await writeFile(path, createTextPdf('Native PDF Text Layer 2026'))
   const resource = await pdfResource(path)
-  const service = new NormalizationService({ outputRoot: join(directory, 'normalized') })
+  const service = new NormalizationService({ outputRoot: join(directory, 'normalized'), runtimeConfig: loadRuntimeConfig() })
 
   const [document] = await service.normalize(resource)
 
@@ -33,7 +33,7 @@ test('uses Docling OCR for a scanned text PDF', { timeout: 300_000 }, async (con
   const path = join(directory, 'FIT2109 Week 05 Scanned.pdf')
   createScannedPdf(path)
   const resource = await pdfResource(path)
-  const service = new NormalizationService({ outputRoot: join(directory, 'normalized') })
+  const service = new NormalizationService({ outputRoot: join(directory, 'normalized'), runtimeConfig: loadRuntimeConfig() })
 
   const [document] = await service.normalize(resource)
 

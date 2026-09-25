@@ -196,7 +196,10 @@ async def main() -> None:
         runtime_config_path = payload.get("runtimeConfigPath")
         if not isinstance(runtime_config_path, str) or not runtime_config_path:
             raise ProtocolError("RUNTIME_CONFIG_INVALID", "payload.runtimeConfigPath must be a non-empty string")
-        config = load_runtime_config(runtime_config_path)
+        application_root = payload.get("applicationRoot")
+        if application_root is not None and (not isinstance(application_root, str) or not application_root):
+            raise ProtocolError("APPLICATION_ROOT_INVALID", "payload.applicationRoot must be a non-empty string")
+        config = load_runtime_config(runtime_config_path, application_root)
         from lightrag_runtime import configure_runtime
 
         configure_runtime(config)

@@ -206,7 +206,7 @@ async function fixture(
 }> {
   const root = await mkdtemp(join(tmpdir(), 'monash-lightrag-sync-'))
   context.after(async () => rm(root, { recursive: true, force: true }))
-  const store = new LightRAGIndexStateStore({ databasePath: join(root, 'state.sqlite') })
+  const store = new LightRAGIndexStateStore({ databasePath: join(root, 'state.sqlite'), initializeDatabase: true })
   const client = new FakeClient()
   const loader = new FakeLoader(document)
   return {
@@ -236,7 +236,7 @@ class FakeLoader extends NormalizedDocumentLoader {
   readonly #documents: readonly NormalizedDocument[]
 
   constructor(document: NormalizedDocument | readonly NormalizedDocument[]) {
-    super()
+    super({ normalizedRoot: '/tmp/monash-study-test-normalized' })
     this.#documents = Array.isArray(document) ? document : [document]
   }
 

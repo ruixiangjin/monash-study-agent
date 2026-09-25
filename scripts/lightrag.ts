@@ -3,7 +3,12 @@ import {
   LightRAGSyncService,
   LightRAGWorkerClient,
   NormalizedDocumentLoader,
+  loadApplicationEnvironment,
+  loadRuntimeConfig,
 } from '@monash-study/knowledge-service'
+
+const runtimeConfig = loadRuntimeConfig()
+loadApplicationEnvironment(runtimeConfig.applicationRoot)
 
 const args = process.argv.slice(2)
 const commandArguments = args[0] === '--' ? args.slice(1) : args
@@ -11,7 +16,7 @@ const command = commandArguments[0]
 if (!['health', 'model-health', 'ingest-document', 'sync-document', 'index-state', 'sync-course', 'search'].includes(command ?? '')) showUsage()
 
 try {
-  const client = new LightRAGWorkerClient()
+  const client = new LightRAGWorkerClient({ runtimeConfig })
   if (command === 'health' && commandArguments.length === 1) {
     const result = await client.health()
     process.stdout.write([
@@ -35,7 +40,7 @@ try {
   } else if (command === 'ingest-document' && commandArguments.length === 2) {
     const documentId = commandArguments[1]
     if (documentId === undefined) showUsage()
-    const document = await new NormalizedDocumentLoader().get(documentId)
+    const document = await new NormalizedDocumentLoader({ normalizedRoot: runtimeConfig.normalizedRoot }).get(documentId)
     if (document === undefined) throw new Error(`NormalizedDocument not found: ${documentId}`)
     const result = await client.ingestDocument(document)
     process.stdout.write([
@@ -49,7 +54,7 @@ try {
   } else if (command === 'sync-document' && commandArguments.length === 2) {
     const documentId = commandArguments[1]
     if (documentId === undefined) showUsage()
-    const service = new LightRAGSyncService()
+    const service = new LightRAGSyncService({ runtimeConfig })
     const result = await service.syncDocument(documentId)
     process.stdout.write([
       'LightRAG document sync: OK',
@@ -86,7 +91,7 @@ try {
     if (course === undefined) showUsage()
     const dryRun = commandArguments[2] === '--dry-run'
     if (commandArguments.length === 3 && !dryRun) showUsage()
-    const service = new LightRAGSyncService()
+    const service = new LightRAGSyncService({ runtimeConfig })
     if (dryRun) {
       const plan = await service.planCourseSync(course)
       process.stdout.write([
@@ -123,7 +128,7 @@ try {
     }
   } else if (command === 'search') {
     const searchArguments = parseSearchArguments(commandArguments.slice(1))
-    const knowledge = new LightRAGKnowledgeService({ client })
+    const knowledge = new LightRAGKnowledgeService({ client, runtimeConfig })
     const evidence = await knowledge.search(searchArguments)
     const lines = [
       'LightRAG search: OK',

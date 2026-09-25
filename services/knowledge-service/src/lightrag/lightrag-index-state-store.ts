@@ -9,6 +9,9 @@ import { loadRuntimeConfig } from '../runtime/runtime-config.js'
 export interface LightRAGIndexStateStoreOptions {
   readonly databasePath?: string
   readonly configPath?: string
+  readonly applicationRoot?: string
+  readonly runtimeConfig?: import('../runtime/runtime-config.js').LoadedRuntimeConfig
+  readonly initializeDatabase?: boolean
 }
 
 export type LightRAGSyncRunStatus = 'running' | 'incomplete' | 'failed' | 'completed' | 'recovered'
@@ -49,11 +52,14 @@ export class LightRAGIndexStateStore {
   readonly #database: DatabaseSync
 
   constructor(options: LightRAGIndexStateStoreOptions = {}) {
-    const runtimeConfig = loadRuntimeConfig(options.configPath)
+    const runtimeConfig = options.runtimeConfig ?? loadRuntimeConfig({
+      ...(options.configPath === undefined ? {} : { configPath: options.configPath }),
+      ...(options.applicationRoot === undefined ? {} : { applicationRoot: options.applicationRoot }),
+    })
     const databasePath = resolve(
       options.databasePath ?? runtimeConfig.lightrag.sqlitePath,
     )
-    this.#database = openLightRAGDatabase(databasePath)
+    this.#database = openLightRAGDatabase(databasePath, options.initializeDatabase === true)
   }
 
   get(documentId: string): LightRAGIndexState | undefined {

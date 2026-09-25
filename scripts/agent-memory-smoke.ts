@@ -20,12 +20,18 @@ import {
   MemoryStudentContextBuilder,
 } from '@monash-study/study-core'
 import { StudyController } from '@monash-study/study-controller'
+import { loadApplicationEnvironment, loadRuntimeConfig } from '@monash-study/knowledge-service'
 
 async function main(): Promise<void> {
+  const runtimeConfig = loadRuntimeConfig()
+  loadApplicationEnvironment(runtimeConfig.applicationRoot)
   const smokeRoot = await mkdtemp(join(tmpdir(), 'monash-study-agent-hybrid-memory-smoke-'))
   const databasePath = join(smokeRoot, 'hybrid-memory.sqlite')
-  const store = new MemoryStore({ databasePath })
-  const embeddingProvider = new BgeM3MemoryEmbeddingProvider()
+  const store = new MemoryStore({ databasePath, initializeDatabase: true })
+  const embeddingProvider = new BgeM3MemoryEmbeddingProvider({
+    pythonPath: runtimeConfig.pythonExecutable,
+    workerPath: runtimeConfig.workers.memoryEmbedding,
+  })
   const memoryService = new MemoryService({
     store,
     extractor: new DeepSeekFlashMemoryCandidateExtractor(new DeepSeekFlashMemoryProvider()),
@@ -35,6 +41,7 @@ async function main(): Promise<void> {
   })
   const sink = new InMemoryAgentEventSink()
   const runtime = new DeepSeekHarnessRuntime({
+    applicationRoot: runtimeConfig.applicationRoot,
     toolServices: {
       memoryReader: memoryService,
       memoryManager: memoryService,

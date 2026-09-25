@@ -1,7 +1,18 @@
 /** Non-secret runtime configuration shared by TypeScript and Python boundaries. */
+export interface RuntimePathConfig {
+  readonly normalizedRoot?: string
+  readonly pythonExecutable?: string
+  readonly workers?: {
+    readonly lightrag?: string
+    readonly docling?: string
+    readonly memoryEmbedding?: string
+  }
+}
+
 export interface RuntimeConfig {
   readonly schemaVersion: 1
   readonly knowledgeProvider: 'lightrag'
+  readonly paths?: RuntimePathConfig
   readonly lightrag: {
     readonly workingRoot: string
     readonly sqlitePath: string

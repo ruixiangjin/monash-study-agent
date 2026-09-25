@@ -99,7 +99,7 @@ class FakeLoader extends NormalizedDocumentLoader {
   readonly #documents: readonly NormalizedDocument[]
 
   constructor(documents: readonly NormalizedDocument[]) {
-    super()
+    super({ normalizedRoot: '/tmp/monash-study-test-normalized' })
     this.#documents = documents
   }
 
@@ -139,7 +139,7 @@ async function fixture(context: TestContext, documents: readonly NormalizedDocum
 }> {
   const root = await mkdtemp(join(tmpdir(), 'monash-lightrag-knowledge-'))
   context.after(async () => rm(root, { recursive: true, force: true }))
-  const store = new LightRAGIndexStateStore({ databasePath: join(root, 'state.sqlite') })
+  const store = new LightRAGIndexStateStore({ databasePath: join(root, 'state.sqlite'), initializeDatabase: true })
   const client = new FakeQueryClient()
   return {
     service: new LightRAGKnowledgeService({ loader: new FakeLoader(documents), client, stateStore: store }),

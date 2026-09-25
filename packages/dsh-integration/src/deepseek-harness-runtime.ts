@@ -1,5 +1,3 @@
-import { existsSync } from 'node:fs'
-import { loadEnvFile } from 'node:process'
 import { randomUUID } from 'node:crypto'
 import { resolve } from 'node:path'
 
@@ -51,6 +49,8 @@ export interface DeepSeekHarnessRuntimeOptions {
   readonly harnessOptions?: DeepSeekHarnessOptions
   /** Path to a Cordis patch that installs the Main Study Agent system prompt. */
   readonly promptPatchPath?: string
+  /** Product workspace anchor used only by this legacy SDK adapter. */
+  readonly applicationRoot?: string
   /** Logical profile used when a direct runtime call omits StudyTurnOptions.modelProfile. */
   readonly defaultModelProfile?: ModelProfile
   /** Product capabilities exposed through the real Harness tool boundary. */
@@ -67,7 +67,7 @@ export class DeepSeekHarnessRuntime implements StudyAgentRuntime {
   readonly #injectedHarness: DeepSeekHarnessDriver | undefined
   readonly #createHarness: ((profile: ModelProfile) => DeepSeekHarnessDriver) | undefined
   readonly #harnessOptions: DeepSeekHarnessOptions
-  readonly #promptPatchPath: string
+  readonly #promptPatchPath: string | undefined
   readonly #defaultModelProfile: ModelProfile
   readonly #systemPrompt: string
   readonly #harnesses = new Map<ModelProfile, DeepSeekHarnessDriver>()
@@ -76,11 +76,12 @@ export class DeepSeekHarnessRuntime implements StudyAgentRuntime {
   #closed = false
 
   constructor(options: DeepSeekHarnessRuntimeOptions = {}) {
-    loadProjectEnvironment()
     this.#injectedHarness = options.harness
     this.#createHarness = options.createHarness
     this.#defaultModelProfile = options.defaultModelProfile ?? 'fast'
-    this.#promptPatchPath = options.promptPatchPath ?? resolve(process.cwd(), 'config/main-agent.cordis.patch.yml')
+    const applicationRoot = options.applicationRoot ?? process.env.MONASH_STUDY_AGENT_ROOT
+    this.#promptPatchPath = options.promptPatchPath
+      ?? (applicationRoot === undefined ? undefined : resolve(applicationRoot, 'config/main-agent.cordis.patch.yml'))
     this.#harnessOptions = options.harnessOptions ?? {}
     this.#toolBridge = options.toolServices === undefined ? undefined : new StudyToolBridge({ services: options.toolServices })
     this.#systemPrompt = options.toolServices === undefined
@@ -212,7 +213,7 @@ export class DeepSeekHarnessRuntime implements StudyAgentRuntime {
   ): DeepSeekHarnessDriver {
     const model = DSH_MODELS[profile]
     const configuredPatches = this.#harnessOptions.patches ?? []
-    const patches = configuredPatches.includes(this.#promptPatchPath)
+    const patches = this.#promptPatchPath === undefined || configuredPatches.includes(this.#promptPatchPath)
       ? configuredPatches
       : [...configuredPatches, this.#promptPatchPath]
     const env = {
@@ -273,9 +274,4 @@ async function emit(sink: AgentEventSink, value: AgentEvent): Promise<void> {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
-}
-
-function loadProjectEnvironment(): void {
-  const envPath = resolve(process.cwd(), '.env')
-  if (existsSync(envPath)) loadEnvFile(envPath)
 }

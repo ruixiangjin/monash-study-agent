@@ -15,6 +15,7 @@ import {
   type MemoryCandidate,
   type MemoryContext,
 } from '@monash-study/memory-service'
+import { loadApplicationEnvironment, loadRuntimeConfig } from '@monash-study/knowledge-service'
 
 const repositorySmokeDirectoryPrefix = 'monash-study-agent-memory-smoke-'
 
@@ -26,6 +27,8 @@ interface Runtime {
 const openedStores: MemoryStore[] = []
 
 async function main(): Promise<void> {
+  const runtimeConfig = loadRuntimeConfig()
+  loadApplicationEnvironment(runtimeConfig.applicationRoot)
   const smokeDirectory = await mkdtemp(join(tmpdir(), repositorySmokeDirectoryPrefix))
   const databasePath = join(smokeDirectory, 'memory-smoke.sqlite')
   let runtime: Runtime | undefined
@@ -34,7 +37,10 @@ async function main(): Promise<void> {
     print('Memory Round 3 Real Smoke')
     print(`database = ${databasePath}`)
 
-    const embeddingProvider = new BgeM3MemoryEmbeddingProvider()
+    const embeddingProvider = new BgeM3MemoryEmbeddingProvider({
+      pythonPath: runtimeConfig.pythonExecutable,
+      workerPath: runtimeConfig.workers.memoryEmbedding,
+    })
     print('')
     print('[1] BGE-M3 health')
     const embeddingTimings: number[] = []
@@ -259,7 +265,7 @@ function createRuntime(
   embeddingProvider: BgeM3MemoryEmbeddingProvider,
   episodeLimitPerCourse: number,
 ): Runtime {
-  const store = new MemoryStore({ databasePath })
+  const store = new MemoryStore({ databasePath, initializeDatabase: true })
   openedStores.push(store)
   const extractor = new DeepSeekFlashMemoryCandidateExtractor(new DeepSeekFlashMemoryProvider())
   const resolver = new MemoryResolver(store)

@@ -12,9 +12,9 @@ const DOCLING_EXTENSIONS = new Set(['docx', 'pdf', 'pptx'])
 export class DocumentNormalizer implements ResourceNormalizer {
   readonly id = 'docling-document'
   readonly version = '1-docling-2.129.0'
-  readonly #docling: DoclingAdapter
+  readonly #docling: DoclingAdapter | undefined
 
-  constructor(docling = new DoclingAdapter()) {
+  constructor(docling?: DoclingAdapter) {
     this.#docling = docling
   }
 
@@ -23,6 +23,9 @@ export class DocumentNormalizer implements ResourceNormalizer {
   }
 
   async normalize(resource: Resource): Promise<readonly NormalizedDocumentDraft[]> {
+    if (this.#docling === undefined) {
+      throw new Error('DocumentNormalizer requires an explicit DoclingAdapter configuration')
+    }
     const converted = await this.#docling.convert(resource.path)
     return [{
       documentId: documentIdForResource(resource),

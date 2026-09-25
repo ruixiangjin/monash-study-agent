@@ -10,6 +10,7 @@ export interface StudyRuntime {
 
 export interface StudyRuntimeOptions {
   readonly configPath?: string
+  readonly applicationRoot?: string
   readonly knowledgeService?: KnowledgeService
 }
 
@@ -19,11 +20,14 @@ export function createStudyRuntime(options: StudyRuntimeOptions = {}): StudyRunt
     return { knowledgeService: options.knowledgeService }
   }
 
-  const runtimeConfig = loadRuntimeConfig(options.configPath)
+  const runtimeConfig = loadRuntimeConfig({
+    ...(options.configPath === undefined ? {} : { configPath: options.configPath }),
+    ...(options.applicationRoot === undefined ? {} : { applicationRoot: options.applicationRoot }),
+  })
   if (runtimeConfig.knowledgeProvider !== 'lightrag') {
     throw new Error(`Unsupported knowledge provider: ${runtimeConfig.knowledgeProvider}`)
   }
   return {
-    knowledgeService: new LightRAGKnowledgeService({ configPath: runtimeConfig.configPath }),
+    knowledgeService: new LightRAGKnowledgeService({ runtimeConfig }),
   }
 }

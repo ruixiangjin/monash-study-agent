@@ -1,5 +1,4 @@
 import { createHash } from 'node:crypto'
-import { resolve } from 'node:path'
 
 import type { Evidence, NormalizedDocument } from '@monash-study/shared-types'
 import type { KnowledgeQuery, KnowledgeService } from '@monash-study/study-core'
@@ -25,6 +24,8 @@ export interface LightRAGKnowledgeServiceOptions {
   readonly loader?: NormalizedDocumentLoader
   readonly stateStore?: LightRAGIndexStateStore
   readonly configPath?: string
+  readonly applicationRoot?: string
+  readonly runtimeConfig?: LoadedRuntimeConfig
 }
 
 export interface LightRAGSearchResult {
@@ -40,13 +41,16 @@ export class LightRAGKnowledgeService implements KnowledgeService {
   readonly #runtimeConfig: LoadedRuntimeConfig
 
   constructor(options: LightRAGKnowledgeServiceOptions = {}) {
-    this.#runtimeConfig = loadRuntimeConfig(options.configPath)
-    this.#client = options.client ?? new LightRAGWorkerClient({ configPath: this.#runtimeConfig.configPath })
+    this.#runtimeConfig = options.runtimeConfig ?? loadRuntimeConfig({
+      ...(options.configPath === undefined ? {} : { configPath: options.configPath }),
+      ...(options.applicationRoot === undefined ? {} : { applicationRoot: options.applicationRoot }),
+    })
+    this.#client = options.client ?? new LightRAGWorkerClient({ runtimeConfig: this.#runtimeConfig })
     this.#loader = options.loader ?? new NormalizedDocumentLoader({
-      normalizedRoot: resolve(this.#runtimeConfig.repositoryRoot, 'data/normalized'),
+      normalizedRoot: this.#runtimeConfig.normalizedRoot,
     })
     this.#stateStore = options.stateStore ?? new LightRAGIndexStateStore({
-      configPath: this.#runtimeConfig.configPath,
+      runtimeConfig: this.#runtimeConfig,
     })
   }
 

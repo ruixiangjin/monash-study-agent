@@ -251,6 +251,7 @@ async function setup(
   let nextId = 1
   const store = new MemoryStore({
     databasePath,
+    initializeDatabase: true,
     now: () => new Date('2026-09-22T09:00:00.000Z'),
     createId: () => `memory-${nextId++}`,
   })

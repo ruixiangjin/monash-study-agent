@@ -1,4 +1,4 @@
-import { mkdirSync } from 'node:fs'
+import { existsSync, mkdirSync, statSync } from 'node:fs'
 import { DatabaseSync } from 'node:sqlite'
 import { dirname } from 'node:path'
 
@@ -151,18 +151,33 @@ const MIGRATIONS: readonly Migration[] = [
   },
 ]
 
-/** Opens the product runtime database and applies all pending migrations atomically. */
-export function openRuntimeDatabase(databasePath: string): DatabaseSync {
+/** Explicitly creates a runtime database and applies all pending migrations. */
+export function initializeRuntimeDatabase(databasePath: string): DatabaseSync {
   mkdirSync(dirname(databasePath), { recursive: true })
+  return openDatabase(databasePath, true)
+}
+
+/** Opens an already initialized runtime database without creating a new one. */
+export function openRuntimeDatabase(databasePath: string): DatabaseSync {
+  return openDatabase(databasePath, false)
+}
+
+function openDatabase(databasePath: string, allowCreate: boolean): DatabaseSync {
+  if (!allowCreate) assertExistingDatabase(databasePath)
   const database = new DatabaseSync(databasePath)
   database.exec('PRAGMA foreign_keys = ON')
-  database.exec(`
-    CREATE TABLE IF NOT EXISTS schema_migrations (
-      version INTEGER PRIMARY KEY,
-      name TEXT NOT NULL,
-      applied_at TEXT NOT NULL
-    );
-  `)
+  if (allowCreate) {
+    database.exec(`
+      CREATE TABLE IF NOT EXISTS schema_migrations (
+        version INTEGER PRIMARY KEY,
+        name TEXT NOT NULL,
+        applied_at TEXT NOT NULL
+      );
+    `)
+  } else if (!hasMigrationTable(database)) {
+    database.close()
+    throw new Error(`Runtime database is not initialized: ${databasePath}`)
+  }
 
   try {
     const applied = new Set(
@@ -193,4 +208,27 @@ export function openRuntimeDatabase(databasePath: string): DatabaseSync {
     database.close()
     throw error
   }
+}
+
+function assertExistingDatabase(databasePath: string): void {
+  if (!existsSync(databasePath)) {
+    throw new Error(`Runtime database does not exist: ${databasePath}; initialize it explicitly before opening it`)
+  }
+  try {
+    if (!statSync(databasePath).isFile()) throw new Error('not a file')
+  } catch (error) {
+    throw new Error(`Runtime database is not a readable file: ${databasePath} (${errorMessage(error)})`)
+  }
+}
+
+function hasMigrationTable(database: DatabaseSync): boolean {
+  return database.prepare(`
+    SELECT 1 AS present
+    FROM sqlite_master
+    WHERE type = 'table' AND name = 'schema_migrations'
+  `).get() !== undefined
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
 }

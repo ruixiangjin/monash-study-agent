@@ -146,6 +146,7 @@ test('StudyApplication uses real MemoryService composition with temporary SQLite
       knowledgeService: null,
       resourceReader: null,
       memoryDatabasePath: databasePath,
+      initializeMemoryDatabase: true,
       memoryEmbeddingProvider: {
         model: 'test-embedding',
         async embed(texts) { return texts.map(() => [1, 0]) },

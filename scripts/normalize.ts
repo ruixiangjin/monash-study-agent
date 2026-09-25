@@ -4,6 +4,8 @@ import { resolve } from 'node:path'
 import type { ResourceRoot } from '@monash-study/shared-types'
 import {
   NormalizationService,
+  loadApplicationEnvironment,
+  loadRuntimeConfig,
   type NormalizationResult,
 } from '@monash-study/knowledge-service'
 import { LocalKnowledgeService } from '@monash-study/knowledge-service'
@@ -19,9 +21,16 @@ if (scope !== 'all' && scope !== 'course' && scope !== 'resource') showUsage()
 if ((scope === 'course' || scope === 'resource') && selector === undefined) showUsage()
 
 const options = parseOptions(scope === 'all' ? [selector, ...optionArguments].filter(isString) : optionArguments)
+const runtimeConfigPath = options.get('--runtime-config')
+const applicationRoot = options.get('--root')
+const runtimeConfig = loadRuntimeConfig({
+  ...(runtimeConfigPath === undefined ? {} : { configPath: runtimeConfigPath }),
+  ...(applicationRoot === undefined ? {} : { applicationRoot }),
+})
+loadApplicationEnvironment(runtimeConfig.applicationRoot)
 const sourceConfigPath = resolve(options.get('--config') ?? 'config/sources.local.json')
-const manifestPath = resolve(options.get('--manifest') ?? 'resources/resources.json')
-const outputRoot = resolve(options.get('--output') ?? 'data/normalized')
+const manifestPath = resolve(options.get('--manifest') ?? runtimeConfig.resourceManifestPath)
+const outputRoot = resolve(options.get('--output') ?? runtimeConfig.normalizedRoot)
 const sourceConfig = JSON.parse(await readFile(sourceConfigPath, 'utf8')) as SourceConfigFile
 
 const knowledge = new LocalKnowledgeService({ roots: sourceConfig.roots, manifestPath })
@@ -34,7 +43,7 @@ const resources = scope === 'all'
 
 if (resources.length === 0) throw new Error(`No Resources matched ${scope}${selector === undefined ? '' : ` ${selector}`}`)
 
-const normalization = new NormalizationService({ outputRoot })
+const normalization = new NormalizationService({ outputRoot, runtimeConfig })
 const results = await normalization.normalizeMany(resources)
 const summary = summarize(results)
 process.stdout.write(`${JSON.stringify({ scope, selector: selector ?? null, outputRoot, ...summary }, null, 2)}\n`)
@@ -84,7 +93,7 @@ function isString(value: string | undefined): value is string {
 function showUsage(): never {
   throw new Error([
     'Usage:',
-    '  pnpm normalize -- all [--config path] [--manifest path] [--output path]',
+    '  pnpm normalize -- all [--config path] [--manifest path] [--output path] [--runtime-config path] [--root path]',
     '  pnpm normalize -- course <course> [options]',
     '  pnpm normalize -- resource <resourceId> [options]',
   ].join('\n'))

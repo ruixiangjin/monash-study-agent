@@ -1,7 +1,7 @@
 import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { performance } from 'node:perf_hooks'
 import { tmpdir } from 'node:os'
-import { join, resolve } from 'node:path'
+import { join } from 'node:path'
 
 import {
   DeepSeekHarnessRuntime,
@@ -24,16 +24,22 @@ import {
 import { StudyController } from '@monash-study/study-controller'
 import { LocalKnowledgeService } from '@monash-study/knowledge-service'
 import type { Evidence, ResourceManifest } from '@monash-study/shared-types'
+import { loadApplicationEnvironment, loadRuntimeConfig } from '@monash-study/knowledge-service'
 
 const TOOL_EVIDENCE_ID = 'smoke-evidence-ORANGE-731'
 
 async function main(): Promise<void> {
+  const runtimeConfig = loadRuntimeConfig()
+  loadApplicationEnvironment(runtimeConfig.applicationRoot)
   const smokeRoot = await mkdtemp(join(tmpdir(), 'monash-study-agent-tools-smoke-'))
   const databasePath = join(smokeRoot, 'memory.sqlite')
-  const store = new MemoryStore({ databasePath })
-  const embeddingProvider = new BgeM3MemoryEmbeddingProvider()
+  const store = new MemoryStore({ databasePath, initializeDatabase: true })
+  const embeddingProvider = new BgeM3MemoryEmbeddingProvider({
+    pythonPath: runtimeConfig.pythonExecutable,
+    workerPath: runtimeConfig.workers.memoryEmbedding,
+  })
   const memoryService = createMemoryService(store, embeddingProvider)
-  const resourceReader = await createResourceReader()
+  const resourceReader = await createResourceReader(runtimeConfig.resourceManifestPath)
   const knowledgeService = {
     async search(): Promise<readonly Evidence[]> {
       return [{
@@ -49,6 +55,7 @@ async function main(): Promise<void> {
     },
   }
   const runtime = new DeepSeekHarnessRuntime({
+    applicationRoot: runtimeConfig.applicationRoot,
     toolServices: {
       knowledgeService,
       resourceReader,
@@ -102,8 +109,7 @@ function createMemoryService(store: MemoryStore, embeddingProvider: BgeM3MemoryE
   })
 }
 
-async function createResourceReader(): Promise<LocalKnowledgeService> {
-  const manifestPath = resolve(process.cwd(), 'resources/resources.json')
+async function createResourceReader(manifestPath: string): Promise<LocalKnowledgeService> {
   const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as ResourceManifest
   const reader = new LocalKnowledgeService({ roots: manifest.roots, manifestPath })
   await reader.loadManifest()

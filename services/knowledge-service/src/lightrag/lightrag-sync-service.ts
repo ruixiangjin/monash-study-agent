@@ -16,6 +16,7 @@ import {
   type LightRAGDeletionResult,
   type LightRAGIngestionResult,
 } from './lightrag-worker-client.js'
+import { loadRuntimeConfig, type LoadedRuntimeConfig } from '../runtime/runtime-config.js'
 
 export interface LightRAGDocumentIndexClient {
   ingestDocument(document: NormalizedDocument): Promise<LightRAGIngestionResult>
@@ -30,6 +31,9 @@ export interface LightRAGSyncServiceOptions {
   readonly loader?: NormalizedDocumentLoader
   readonly client?: LightRAGDocumentIndexClient
   readonly stateStore?: LightRAGIndexStateStore
+  readonly configPath?: string
+  readonly applicationRoot?: string
+  readonly runtimeConfig?: LoadedRuntimeConfig
 }
 
 export type LightRAGDocumentSyncStatus = 'indexed' | 'updated' | 'unchanged'
@@ -91,9 +95,13 @@ export class LightRAGSyncService {
   readonly #stateStore: LightRAGIndexStateStore
 
   constructor(options: LightRAGSyncServiceOptions = {}) {
-    this.#loader = options.loader ?? new NormalizedDocumentLoader()
-    this.#client = options.client ?? new LightRAGWorkerClient()
-    this.#stateStore = options.stateStore ?? new LightRAGIndexStateStore()
+    const runtimeConfig = options.runtimeConfig ?? loadRuntimeConfig({
+      ...(options.configPath === undefined ? {} : { configPath: options.configPath }),
+      ...(options.applicationRoot === undefined ? {} : { applicationRoot: options.applicationRoot }),
+    })
+    this.#loader = options.loader ?? new NormalizedDocumentLoader({ normalizedRoot: runtimeConfig.normalizedRoot })
+    this.#client = options.client ?? new LightRAGWorkerClient({ runtimeConfig })
+    this.#stateStore = options.stateStore ?? new LightRAGIndexStateStore({ runtimeConfig })
   }
 
   async syncDocument(documentId: string): Promise<LightRAGDocumentSyncResult> {

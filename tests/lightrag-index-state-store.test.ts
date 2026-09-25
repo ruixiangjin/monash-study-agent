@@ -10,7 +10,7 @@ import { LightRAGIndexStateStore, type LightRAGIndexState } from '@monash-study/
 test('creates and persists the LightRAG index state schema', async (context) => {
   const root = await testDirectory(context)
   const databasePath = join(root, 'runtime', 'state.sqlite')
-  const store = new LightRAGIndexStateStore({ databasePath })
+  const store = new LightRAGIndexStateStore({ databasePath, initializeDatabase: true })
 
   assert.equal(store.get('missing'), undefined)
   assert.deepEqual(store.listByCourse('FIT2109'), [])

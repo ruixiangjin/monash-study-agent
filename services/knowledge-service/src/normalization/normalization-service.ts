@@ -3,8 +3,10 @@ import { mkdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { dirname, relative, resolve, sep } from 'node:path'
 
 import type { NormalizedDocument, Resource } from '@monash-study/shared-types'
+import type { LoadedRuntimeConfig } from '../runtime/runtime-config.js'
 import { CodeNormalizer } from './code-normalizer.js'
 import { CsvNormalizer } from './csv-normalizer.js'
+import { DoclingAdapter } from './docling-adapter.js'
 import { DocumentNormalizer } from './document-normalizer.js'
 import { ForumNormalizer } from './forum-normalizer.js'
 import type { NormalizedDocumentDraft, ResourceNormalizer } from './resource-normalizer.js'
@@ -25,7 +27,8 @@ export interface NormalizationResult {
 
 /** Configuration for the normalization router and persistent output. */
 export interface NormalizationServiceConfig {
-  readonly outputRoot?: string
+  readonly outputRoot: string
+  readonly runtimeConfig?: LoadedRuntimeConfig
   readonly normalizers?: readonly ResourceNormalizer[]
 }
 
@@ -52,14 +55,17 @@ export class NormalizationService {
   readonly #outputRoot: string
   readonly #normalizers: readonly ResourceNormalizer[]
 
-  constructor(config: NormalizationServiceConfig = {}) {
-    this.#outputRoot = resolve(config.outputRoot ?? 'data/normalized')
+  constructor(config: NormalizationServiceConfig) {
+    this.#outputRoot = resolve(config.outputRoot)
     this.#normalizers = config.normalizers ?? [
       new ForumNormalizer(),
       new TextNormalizer(),
       new CodeNormalizer(),
       new CsvNormalizer(),
-      new DocumentNormalizer(),
+      new DocumentNormalizer(config.runtimeConfig === undefined ? undefined : new DoclingAdapter({
+        pythonPath: config.runtimeConfig.pythonExecutable,
+        workerPath: config.runtimeConfig.workers.docling,
+      })),
     ]
   }
 

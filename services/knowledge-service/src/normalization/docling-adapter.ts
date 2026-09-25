@@ -1,6 +1,5 @@
 import { spawn } from 'node:child_process'
 import { resolve } from 'node:path'
-import { fileURLToPath } from 'node:url'
 
 import type { NormalizedRegion } from '@monash-study/shared-types'
 
@@ -19,8 +18,8 @@ export interface DoclingConversion {
 
 /** Configuration for the local Python Docling bridge. */
 export interface DoclingAdapterConfig {
-  readonly pythonPath?: string
-  readonly workerPath?: string
+  readonly pythonPath: string
+  readonly workerPath: string
 }
 
 /** Runs the project-pinned Docling Standard Pipeline outside the Node process. */
@@ -28,14 +27,9 @@ export class DoclingAdapter {
   readonly #pythonPath: string
   readonly #workerPath: string
 
-  constructor(config: DoclingAdapterConfig = {}) {
-    const repositoryRoot = fileURLToPath(new URL('../../../../', import.meta.url))
-    this.#pythonPath = config.pythonPath === undefined
-      ? resolve(repositoryRoot, 'services/knowledge-service/.venv/bin/python')
-      : resolve(config.pythonPath)
-    this.#workerPath = config.workerPath === undefined
-      ? resolve(repositoryRoot, 'services/knowledge-service/python/docling_worker.py')
-      : resolve(config.workerPath)
+  constructor(config: DoclingAdapterConfig) {
+    this.#pythonPath = resolve(config.pythonPath)
+    this.#workerPath = resolve(config.workerPath)
   }
 
   /** Convert one PDF, DOCX, or PPTX file into Markdown and source locators. */

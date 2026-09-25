@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any
 
 
-def load_runtime_config(path: str) -> dict[str, Any]:
+def load_runtime_config(path: str, application_root: str | None = None) -> dict[str, Any]:
     config_path = Path(path).expanduser().resolve()
     with config_path.open(encoding="utf-8") as stream:
         value = json.load(stream)
@@ -22,7 +22,11 @@ def load_runtime_config(path: str) -> dict[str, Any]:
         if not isinstance(lightrag.get(key), str) or not lightrag[key]:
             raise ValueError(f"Runtime config lightrag.{key} is invalid: {config_path}")
 
-    repository_root = config_path.parent.parent
+    repository_root = (
+        Path(application_root).expanduser().resolve()
+        if application_root is not None
+        else config_path.parent.parent
+    )
     resolved = dict(value)
     resolved_lightrag = dict(lightrag)
     resolved_lightrag["workingRoot"] = str(resolve_path(repository_root, lightrag["workingRoot"]))

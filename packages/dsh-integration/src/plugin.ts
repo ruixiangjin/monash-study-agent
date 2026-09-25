@@ -19,7 +19,12 @@ export class MonashStudyKnowledgeService extends Service {
   constructor(ctx: Context, config: Config) {
     super(ctx, 'monashStudyKnowledge')
     this.runtime = createStudyRuntime(
-      config.runtimeConfigPath === undefined ? {} : { configPath: config.runtimeConfigPath },
+      config.runtimeConfigPath === undefined && config.applicationRoot === undefined
+        ? {}
+        : {
+          ...(config.runtimeConfigPath === undefined ? {} : { configPath: config.runtimeConfigPath }),
+          ...(config.applicationRoot === undefined ? {} : { applicationRoot: config.applicationRoot }),
+        },
     )
   }
 }

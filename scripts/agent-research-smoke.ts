@@ -1,5 +1,4 @@
 import { readFile } from 'node:fs/promises'
-import { resolve } from 'node:path'
 import { performance } from 'node:perf_hooks'
 
 import {
@@ -13,16 +12,20 @@ import {
 import { LightRAGKnowledgeService, LocalKnowledgeService } from '@monash-study/knowledge-service'
 import type { ResourceManifest } from '@monash-study/shared-types'
 import { StudyController } from '@monash-study/study-controller'
+import { loadApplicationEnvironment, loadRuntimeConfig } from '@monash-study/knowledge-service'
 
 async function main(): Promise<void> {
-  const manifestPath = resolve(process.cwd(), 'resources/resources.json')
+  const runtimeConfig = loadRuntimeConfig()
+  loadApplicationEnvironment(runtimeConfig.applicationRoot)
+  const manifestPath = runtimeConfig.resourceManifestPath
   const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as ResourceManifest
   const resourceReader = new LocalKnowledgeService({ roots: manifest.roots, manifestPath })
   await resourceReader.loadManifest()
   const sink = new InMemoryAgentEventSink()
   const runtime = new DeepSeekHarnessRuntime({
+    applicationRoot: runtimeConfig.applicationRoot,
     toolServices: {
-      knowledgeService: new LightRAGKnowledgeService(),
+      knowledgeService: new LightRAGKnowledgeService({ runtimeConfig }),
       resourceReader,
     },
   })

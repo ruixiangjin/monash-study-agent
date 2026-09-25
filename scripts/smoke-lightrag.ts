@@ -1,15 +1,20 @@
 import {
   LightRAGKnowledgeService,
   NormalizedDocumentLoader,
+  loadApplicationEnvironment,
+  loadRuntimeConfig,
 } from '@monash-study/knowledge-service'
+
+const runtimeConfig = loadRuntimeConfig()
+loadApplicationEnvironment(runtimeConfig.applicationRoot)
 
 const course = 'FIT2109'
 const query = 'What is a fast-forward merge in Git?'
-const search = await new LightRAGKnowledgeService().searchDetailed({ query, course, limit: 5 })
+const search = await new LightRAGKnowledgeService({ runtimeConfig }).searchDetailed({ query, course, limit: 5 })
 const evidence = search.evidence
 if (evidence.length === 0) throw new Error('LightRAG smoke returned no Evidence')
 
-const loader = new NormalizedDocumentLoader()
+const loader = new NormalizedDocumentLoader({ normalizedRoot: runtimeConfig.normalizedRoot })
 for (const item of evidence) {
   if (item.resourceId === undefined) throw new Error(`Evidence has no resourceId: ${item.evidenceId}`)
   if (item.sourceSystem !== 'ed' && item.sourceSystem !== 'moodle' && item.sourceSystem !== 'local') {

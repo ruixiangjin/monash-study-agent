@@ -1,6 +1,15 @@
 {
   "schemaVersion": 1,
   "knowledgeProvider": "lightrag",
+  "paths": {
+    "normalizedRoot": "data/normalized",
+    "pythonExecutable": "services/knowledge-service/.venv/bin/python",
+    "workers": {
+      "lightrag": "services/knowledge-service/python/lightrag_worker.py",
+      "docling": "services/knowledge-service/python/docling_worker.py",
+      "memoryEmbedding": "services/memory-service/python/memory_embedding_worker.py"
+    }
+  },
   "lightrag": {
     "workingRoot": "data/runtime/lightrag",
     "sqlitePath": "data/runtime/monash-study-agent.sqlite",

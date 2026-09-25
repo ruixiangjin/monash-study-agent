@@ -8,6 +8,7 @@ import {
   type CourseContext,
 } from '@monash-study/study-core'
 import { StudyController } from '@monash-study/study-controller'
+import { loadApplicationEnvironment, loadRuntimeConfig } from '@monash-study/knowledge-service'
 
 interface SmokeArgs {
   readonly course: CourseContext
@@ -17,7 +18,9 @@ interface SmokeArgs {
 
 async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2))
-  const runtime = new DeepSeekHarnessRuntime()
+  const runtimeConfig = loadRuntimeConfig()
+  loadApplicationEnvironment(runtimeConfig.applicationRoot)
+  const runtime = new DeepSeekHarnessRuntime({ applicationRoot: runtimeConfig.applicationRoot })
   const controller = new StudyController(runtime, new DefaultModelPolicy())
   try {
     const started = performance.now()
