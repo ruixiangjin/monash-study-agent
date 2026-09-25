@@ -1,6 +1,11 @@
 - insert:
     - id: monash-study-ui
-      name: '@monash-study/dsh-ui-plugin'
+      # This is deliberately a repository-local runtime artifact.  It lives
+      # below the vendored DSH installation so its external DSH imports use
+      # the same Node package graph as the host, while the Web profile remains
+      # declaration-only.
+      name: '../vendor/deepseek-harness/.monash-study/dsh-ui-plugin/lib/index.js'
       config:
+        applicationRoot: !!js process.env.MONASH_STUDY_AGENT_ROOT
         runtimeConfigPath: !!js process.env.MONASH_STUDY_AGENT_RUNTIME_CONFIG
         resourceManifestPath: !!js process.env.MONASH_STUDY_AGENT_RESOURCE_MANIFEST
