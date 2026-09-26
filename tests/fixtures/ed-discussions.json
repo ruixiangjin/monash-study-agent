@@ -1,0 +1,88 @@
+{
+  "schema_version": 1,
+  "course": {
+    "id": "demo-fit2109",
+    "title": "FIT2109 Example Course",
+    "url": "https://example.invalid/ed/courses/demo-fit2109/discussion",
+    "categories": []
+  },
+  "current_tag": 7,
+  "last_successful_scrape_at": "2026-09-20T10:00:00Z",
+  "runs": [],
+  "threads": [
+    {
+      "id": "thread-101",
+      "courseId": "demo-fit2109",
+      "number": 101,
+      "title": "Example Topic List",
+      "category": "Examples",
+      "author": "Demo Staff",
+      "role": "staff",
+      "publishedAt": "2026-09-10T01:00:00Z",
+      "content": "This mock lesson uses Topics A through C.",
+      "url": "https://example.invalid/ed/courses/demo-fit2109/discussion/101",
+      "images": [],
+      "first_seen_tag": 1,
+      "last_seen_tag": 7,
+      "last_changed_tag": 6,
+      "comments": [
+        {
+          "id": "comment-101",
+          "author": "Demo Student",
+          "role": "student",
+          "publishedAt": "2026-09-10T02:00:00Z",
+          "content": "Is Topic C included in this example?",
+          "images": [],
+          "first_seen_tag": 2,
+          "last_seen_tag": 7,
+          "last_changed_tag": 2
+        }
+      ],
+      "answers": [
+        {
+          "id": "answer-101",
+          "author": "Demo Tutor",
+          "role": "staff",
+          "publishedAt": "2026-09-10T03:00:00Z",
+          "content": "Yes, Topic C is part of this mock example.",
+          "accepted": true,
+          "images": ["https://example.invalid/files/example.png"],
+          "first_seen_tag": 3,
+          "last_seen_tag": 7,
+          "last_changed_tag": 3,
+          "comments": [
+            {
+              "id": "comment-102",
+              "author": "Demo Student",
+              "role": "student",
+              "publishedAt": "2026-09-10T04:00:00Z",
+              "content": "Thank you.",
+              "images": [],
+              "first_seen_tag": 4,
+              "last_seen_tag": 7,
+              "last_changed_tag": 4
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "thread-102",
+      "courseId": "demo-fit2109",
+      "number": 102,
+      "title": "Example Follow-up",
+      "category": "General",
+      "author": "Demo Staff",
+      "role": "staff",
+      "publishedAt": "2026-09-11T01:00:00Z",
+      "content": "The sample attachment is now available.",
+      "url": "https://example.invalid/ed/courses/demo-fit2109/discussion/102",
+      "images": [],
+      "first_seen_tag": 5,
+      "last_seen_tag": 7,
+      "last_changed_tag": 5,
+      "comments": null,
+      "answers": null
+    }
+  ]
+}
