@@ -1,8 +1,10 @@
 # DSH UI Plugin Implementation Reference
 
-This document records the verified implementation surface used by Round 1 of
-the Monash Study Agent UI. It is based on the local DeepSeek Harness checkout
-pinned to `0.1.6-alpha.2`, not on a generic React assumption.
+This document records the implementation surface of the Monash Study Agent
+Web UI. It is based on the repository's vendored DeepSeek Harness checkout
+pinned to `0.1.6-alpha.2`, not on a generic React assumption. Session-history
+work currently present in the `feature/monash-ui-refresh` worktree is marked
+separately from real-browser validation below.
 
 ## DSH findings used by the implementation
 
@@ -44,6 +46,9 @@ The product implementation publishes:
 | --- | --- | --- |
 | `monashStudy/runTurn` | unary Remote | Runs `StudyApplication.runTurn()` and returns a safe completed/failed projection. |
 | `monashStudy/listCourses` | unary Remote | Reads the existing Resource Manifest statistics and returns course summaries. |
+| `monashStudy/createConversation` | unary Remote | Creates a DSH-owned session scoped to a manifest course. |
+| `monashStudy/listCourseConversations` | unary Remote | Lists DSH sessions associated with the requested course. |
+| `monashStudy/loadConversation` | unary Remote | Projects persisted user/assistant text and conversation metadata from a DSH session. |
 | `monashStudy/runEvents` | native Remote stream | Streams safe product `AgentEvent` values for one `runId`. |
 
 The stream uses DSH's native Typert Remote transport. No new DSH core event
@@ -91,14 +96,19 @@ can drain the terminal event.
 
 ## Round 1 UI contract
 
-### Courses and conversations
+### Courses and persisted conversations
 
 `listCourses` returns `{ courseCode, resourceCount }` from
-`resources/resources.json`. The page keeps a separate in-memory state for each
-course, so switching courses does not discard the previous conversation. Each
-course state owns its `messages`, `conversation`, activity list, evidence, and
-error. `New Chat` resets only the selected course state and removes its
-conversation continuation reference.
+`resources/resources.json`. The page lists conversations separately for the
+selected course. `createConversation` creates the authoritative DSH Session;
+the course code is included in the generated session id. `loadConversation`
+reads DSH session history and projects user and assistant text into the chat.
+Conversation identity and messages therefore survive a page reload through
+DSH persistence; the UI does not maintain a second conversation database.
+
+Activity events, Evidence cards, and per-turn error presentation are in-memory
+UI state and are not reconstructed by `loadConversation`. `New Chat` creates a
+new course-owned DSH session and selects it.
 
 ### Three-column page
 
@@ -134,8 +144,9 @@ provider payloads:
 | `run_completed` | Completed |
 | `run_failed` | Run failed |
 
-The Research badge is shown when `StudyTurnResult.subagentsUsed` includes
-`research`; its count is the product-owned `researchActions` value.
+The Research badge is shown when the completed result has a positive
+`researchActions` count; the displayed count is that product-owned retrieval
+action total. Activity labels come from safe product `AgentEvent` values.
 
 ### Evidence
 
@@ -209,21 +220,20 @@ UI, and startup provenance resolves to the product application root, product
 runtime SQLite, product LightRAG root, normalized-document root, worker root,
 and resource manifest. No profile-local root is used for those product paths.
 
-The post-fix browser verification completed the bounded A/B/C checks. Fresh A
-created `session-bb7d64d7-2719-4302-b5d2-131320aa13ac` in FIT2109; the first
-question called `search_knowledge`, executed the LightRAG query, showed
-Evidence, and completed. Same-process B completed in the same session.
-After a normal Web restart, C restored the session history and a third turn
-completed without `entry._await`.
+The post-fix browser verification on 2026-09-22 completed Fresh A,
+Same-process B, and persisted Resume C. Fresh A called `search_knowledge`, ran
+the LightRAG query, showed Evidence, and completed. B continued in the same
+session; after a Web restart, C restored session history and completed without
+`entry._await`. In C, however, a fresh follow-up search failed with
+`Study Agent services are not configured`, so the UI reused earlier Evidence.
 
-The restarted third turn also exposed the remaining product boundary: its
-fresh follow-up search reported `Study Agent services are not configured`, so
-the answer reused Evidence from the earlier turns. The exact source boundary
-is `packages/dsh-integration/src/in-process-dsh-runtime.ts:75`, where
-`InProcessDshRuntime.executeTool()` has no restored `toolBridge`. Thus the
-vendored package graph and session resume pass, while full post-restart browser
-Knowledge E2E remains pending. No DSH-core change, dependency upgrade, profile
-cleanup, re-index, or Memory work was performed.
+The current `feature/monash-ui-refresh` worktree adds course-scoped DSH session
+creation/listing/loading and lazy initialization of product services for
+restored Agent tool calls. The targeted integration tests cover Remote
+descriptors, session-history projection, and restored-session tool binding.
+The code changes are uncommitted and have not yet been rechecked in a real
+browser after restart. Full post-restart browser Knowledge E2E remains
+unverified until a fresh search returns new Evidence.
 
 ## Known Round 1 limitations
 
@@ -234,7 +244,10 @@ cleanup, re-index, or Memory work was performed.
   DSH integration because the product repository does not run the DSH Typert
   generator. Its descriptors and strict codecs mirror the generated
   `typert.remote-client` contract and are covered by tests.
-- The current page keeps UI conversation state in the browser for the active
-  page. Current Web session continuity is delegated to the DSH Web
-  `SessionController` through `InProcessDshRuntime`; the historical SDK
-  `DeepSeekHarnessRuntime` continuity smoke is a separate Legacy path.
+- The DSH Session Store owns persisted conversation history. The UI rehydrates
+  user/assistant messages, while Agent Activity, Evidence cards, and errors
+  remain per-page/per-turn presentation state.
+- The targeted restored-session tool-binding tests pass in the current
+  worktree, but a real post-restart browser search has not yet verified that
+  path. The historical SDK `DeepSeekHarnessRuntime` continuity smoke is a
+  separate Legacy path.

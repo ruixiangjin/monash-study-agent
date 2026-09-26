@@ -35,6 +35,7 @@ const child = spawn(process.execPath, [paths.dshLauncher, 'web', '--patch', path
     MONASH_STUDY_AGENT_RUNTIME_CONFIG: paths.runtimeConfig,
     MONASH_STUDY_AGENT_RESOURCE_MANIFEST: paths.resourceManifest,
     MONASH_STUDY_AGENT_PRESET_ROOT: paths.presetRoot,
+    DSH_CLIENT_TITLE: 'Monash Study Agent',
   },
   stdio: 'inherit',
 })

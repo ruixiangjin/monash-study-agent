@@ -15,6 +15,7 @@ await writeFile(join(targetDirectory, 'package.json'), `${JSON.stringify(manifes
 
 const dshPackages = {
   '@deepseek-ai/cordis': 'vendor/cordis',
+  '@deepseek-ai/dsh-session': 'packages/core/session',
   '@deepseek-ai/dsh-sdk-client': 'packages/sdk/client',
   '@deepseek-ai/dsh-typert-protocol': 'packages/typert/protocol',
 } as const

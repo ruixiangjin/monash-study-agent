@@ -62,8 +62,10 @@ into unrelated cleanup.
   cwd-independence, and relocation-oriented tests.
 - Runtime database opening fails without creating a missing database; tests and
   first-run initialization use an explicit initialization option.
-- The existing automated suite passes after the path and database boundary
-  changes.
+- The path/database milestone checks passed at the time they were added.
+  Current verification is recorded in the Codebase Reference: typecheck
+  passes, while the latest restricted-environment full test run has five
+  loopback `EPERM` failures and one OCR assertion failure.
 - Web startup prints safe runtime path provenance only; no secret values are
   included.
 - The Web launcher uses the repository-vendored DSH CLI and local patch; the
@@ -77,20 +79,19 @@ into unrelated cleanup.
 - Persisted Resume C passed after a normal Web restart: the new session's
   history restored and a third turn completed without `entry._await`.
 
-## Known Issues
+## Current Validation Limits
 
-- The freshly-created post-fix session is
-  `session-bb7d64d7-2719-4302-b5d2-131320aa13ac`. Its history and a third turn
-  restored after Web restart without `entry._await`. However, the restarted
-  third turn's fresh tool dispatch failed with `Study Agent services are not
-  configured`; the UI completed using Evidence already retrieved earlier.
-  The exact product boundary is
-  `packages/dsh-integration/src/in-process-dsh-runtime.ts:75`, where
-  `executeTool()` finds no restored `toolBridge`. This is a current product
-  session/tool-binding boundary; do not modify DSH core in response.
-- Therefore the package-graph and A/B/C session-resume checks pass, but full
-  post-restart browser Knowledge E2E is not yet validated. The pre-fix
-  `entry._await` failure is no longer reproduced on fresh creation or resume.
+- Browser verification on 2026-09-22 passed Fresh A, same-process B, and
+  persisted Resume C. Resume C restored session history after restart, but
+  its fresh Knowledge search failed to bind product services and reused
+  earlier Evidence.
+- The current uncommitted worktree adds lazy product-service initialization
+  and restored-session tool-bridge binding. Targeted tests exercise this code
+  path. A real browser restart followed by a fresh search has not been run
+  since these changes, so post-fix Web Knowledge E2E remains unverified.
+- Course-scoped conversation create/list/load and persisted user/assistant
+  message projection are also present in the current worktree. Their targeted
+  tests and typecheck pass; post-change browser validation remains pending.
 - `pnpm agent-smoke` still exercises the legacy SDK runtime and is explicitly
   model-only until a dedicated Single Runtime E2E is added.
 - LightRAG Python startup remains a known cold-start performance cost; it is
@@ -108,13 +109,12 @@ boundary instead of from package installation location.
 
 ## Next Steps
 
-1. Keep the vendored Single Runtime path and package graph frozen; do not
-   modify DSH core, upgrade dependencies, clear the profile, re-index, or enter
-   Memory work.
-2. The next bounded investigation is only the post-restart product
-   `StudyToolBridge` binding/session restoration boundary, or a safe
-   `SESSION_ERROR` behavior. Do not silently delete sessions.
-3. Do not claim full browser Knowledge E2E until a post-restart turn performs
-   a fresh `search_knowledge` call and returns new Evidence.
-4. Reassess the legacy SDK smoke only after the current Web boundary is
-   separately resolved. Persistent LightRAG workers remain a later round.
+1. Verify the current course-scoped conversation UI in the real Web profile:
+   create a session, send a turn, restart Web, restore it, and confirm a new
+   `search_knowledge` call returns fresh Evidence.
+2. Re-run the full tests in an environment that permits required local
+   listeners and investigate the scanned-PDF OCR assertion independently.
+3. Keep legacy SDK smoke results labeled as Legacy; they do not prove current
+   Web Research, tools, or memory behavior.
+4. Persistent LightRAG workers, live course connectors, Resource Catalog,
+   and desktop shell remain later product work.

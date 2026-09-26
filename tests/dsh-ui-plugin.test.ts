@@ -3,6 +3,13 @@ import { test } from 'node:test'
 
 import type { AgentEvent, StudyTurnResult } from '@monash-study/study-core'
 import { TYPERT_REMOTE } from '../packages/dsh-integration/src/remote.js'
+import {
+  courseCodeFromSessionEvents,
+  courseCodeFromSessionId,
+  createCourseSessionId,
+  projectCourseConversationMessages,
+  titleFromSessionEvents,
+} from '../packages/dsh-integration/src/session-conversations.js'
 import { LazyStudyApplication } from '../packages/dsh-integration/src/ui-service.js'
 import { inject, registerMonashStudySlots } from '../packages/dsh-ui-plugin/src/client/registration.js'
 import {
@@ -86,14 +93,17 @@ test('keeps the stable runtime error labels at the UI boundary', () => {
   assert.equal(errorLabel('UNKNOWN'), 'Something went wrong')
 })
 
-test('publishes the three UI Remote endpoints with native Typert transport', () => {
+test('publishes the course conversation UI Remote endpoints with native Typert transport', () => {
   assert.equal(TYPERT_REMOTE.package, '@monash-study/dsh-integration')
   assert.deepEqual(TYPERT_REMOTE.descriptors.map(descriptor => `${descriptor.namespace}/${descriptor.method}`), [
     'monashStudy/runTurn',
     'monashStudy/listCourses',
+    'monashStudy/createConversation',
+    'monashStudy/listCourseConversations',
+    'monashStudy/loadConversation',
     'monashStudy/runEvents',
   ])
-  assert.equal(TYPERT_REMOTE.descriptors[2]?.mode, 'stream')
+  assert.equal(TYPERT_REMOTE.descriptors[5]?.mode, 'stream')
   assert.ok(inject.includes('remote'))
   assert.ok(inject.includes('slots'))
 })
@@ -129,7 +139,7 @@ test('disposing before the first turn does not create StudyApplication', async (
   assert.equal(createCount, 0)
 })
 
-test('registers the Monash page in the sidebar and keyed main slot, then disposes both', async () => {
+test('registers the Study page and brand slots, then disposes them', async () => {
   const registrations: Array<{ readonly options: Record<string, unknown>; readonly component: unknown }> = []
   const disposed: string[] = []
   const dispose = registerMonashStudySlots({
@@ -140,13 +150,52 @@ test('registers the Monash page in the sidebar and keyed main slot, then dispose
         return () => { disposed.push(String(options.name)) }
       },
     },
-  }, 'sidebar-icon', 'main-page')
+  }, 'sidebar-icon', 'main-page', 'brand-mark', 'brand-name')
 
-  assert.equal(registrations.length, 2)
-  assert.deepEqual(registrations.map(item => item.options.name), ['sidebar.panellist', 'main'])
-  assert.equal(registrations[0]?.options.id, 'monash-study')
-  assert.equal(registrations[1]?.options.key, 'monash-study')
+  assert.equal(registrations.length, 4)
+  assert.deepEqual(registrations.map(item => item.options.name), [
+    'sidebar.brand.mark', 'sidebar.brand.name', 'sidebar.panellist', 'main',
+  ])
+  assert.equal(registrations[0]?.options.priority, -1)
+  assert.equal(registrations[1]?.options.priority, -1)
+  assert.equal(registrations[2]?.options.id, 'monash-study')
+  assert.equal(registrations[2]?.options.label, 'Study')
+  assert.equal(registrations[3]?.options.key, 'monash-study')
 
   dispose()
-  assert.deepEqual(disposed, ['main', 'sidebar.panellist'])
+  assert.deepEqual(disposed, ['main', 'sidebar.panellist', 'sidebar.brand.name', 'sidebar.brand.mark'])
+})
+
+test('associates conversations with courses through DSH session identity and persisted prompts', () => {
+  const sessionId = createCourseSessionId('FIT2109', 'turn-id')
+  assert.equal(sessionId, 'monash-study-fit2109-turn-id')
+  assert.equal(courseCodeFromSessionId(sessionId, ['FIT2102', 'FIT2109']), 'FIT2109')
+  assert.equal(courseCodeFromSessionId('monash-study-fit2014-turn-id', ['FIT2102', 'FIT2109']), undefined)
+
+  const events = [{
+    type: 'user/message',
+    data: { content: [{
+      type: 'text',
+      text: 'Current runtime context:\ncourseCode: FIT2109\n\nUser query:\nExplain the assessment.',
+    }] },
+  }]
+  assert.equal(courseCodeFromSessionEvents(events, ['FIT2102', 'FIT2109']), 'FIT2109')
+})
+
+test('projects only persisted learner and assistant text into the course conversation', () => {
+  const events = [
+    { seq: 1, time: 10, type: 'user/message', data: { content: [{ type: 'text', text: 'Current runtime context:\ncourseCode: FIT2109\n\nUser query:\nExplain the assessment.' }] } },
+    { seq: 2, time: 11, type: 'tool/call', data: { name: 'research_subagent' } },
+    { seq: 3, time: 12, type: 'assistant/message', data: { message: { content: [{ type: 'text', text: 'Here is the explanation.' }] } } },
+    { seq: 4, time: 13, type: 'user/message', data: { content: [{ type: 'text', text: '   ' }] } },
+  ]
+  assert.deepEqual(projectCourseConversationMessages('session-1', events), [
+    { id: 'session-1:1', role: 'user', content: 'Explain the assessment.', createdAt: 10 },
+    { id: 'session-1:3', role: 'assistant', content: 'Here is the explanation.', createdAt: 12 },
+  ])
+  assert.equal(titleFromSessionEvents(events), 'Explain the assessment.')
+  assert.equal(titleFromSessionEvents([
+    ...events,
+    { seq: 5, time: 14, type: 'session/title', data: { title: 'Assessment details' } },
+  ]), 'Assessment details')
 })

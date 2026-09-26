@@ -6,6 +6,29 @@ export interface CourseSummary {
   readonly resourceCount: number
 }
 
+/** One course-owned entry pointing at the authoritative DSH Session. */
+export interface CourseConversationSummary {
+  readonly sessionId: string
+  readonly title: string
+  readonly updatedAt: number
+}
+
+/** Text message projected from persisted DSH Session history. */
+export interface CourseConversationMessage {
+  readonly id: string
+  readonly role: 'user' | 'assistant'
+  readonly content: string
+  readonly createdAt: number
+}
+
+/** Rehydrated chat view for one DSH-owned conversation. */
+export interface CourseConversationHistory {
+  readonly conversation: { readonly sessionId: string; readonly conversationId: string }
+  readonly title: string
+  readonly updatedAt: number
+  readonly messages: readonly CourseConversationMessage[]
+}
+
 /** Wire input for one UI-originated Study Agent turn. */
 export interface MonashStudyTurnRequest {
   readonly runId: string

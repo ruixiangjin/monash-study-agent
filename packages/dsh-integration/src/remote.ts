@@ -9,6 +9,8 @@
 import { z } from 'zod'
 import type { RemoteResult, TypertRemoteContribution } from '@deepseek-ai/dsh-typert-protocol'
 import type {
+  CourseConversationHistory,
+  CourseConversationSummary,
   CourseSummary,
   MonashStudyAgentEvent,
   MonashStudyTurnRequest,
@@ -63,6 +65,26 @@ const courseSummary = () => z.object({
   resourceCount: z.number(),
 })
 
+const courseConversationSummary = () => z.object({
+  sessionId: z.string(),
+  title: z.string(),
+  updatedAt: z.number(),
+})
+
+const courseConversationMessage = () => z.object({
+  id: z.string(),
+  role: z.union([z.literal('user'), z.literal('assistant')]),
+  content: z.string(),
+  createdAt: z.number(),
+})
+
+const courseConversationHistory = () => z.object({
+  conversation: conversation(),
+  title: z.string(),
+  updatedAt: z.number(),
+  messages: z.array(courseConversationMessage()),
+})
+
 const turnRequest = () => z.object({
   runId: z.string(),
   query: z.string(),
@@ -113,6 +135,24 @@ const listCoursesResultCodec = () => ({
   create: () => z.array(courseSummary()),
 })
 
+const courseConversationListCodec = () => ({
+  mode: 'strict' as const,
+  typeSymbol: '@monash-study/dsh-integration/ui-contract#CourseConversationSummary[]',
+  create: () => z.array(courseConversationSummary()),
+})
+
+const courseConversationResultCodec = () => ({
+  mode: 'strict' as const,
+  typeSymbol: '@monash-study/dsh-integration/ui-contract#CourseConversationSummary',
+  create: courseConversationSummary,
+})
+
+const courseConversationHistoryCodec = () => ({
+  mode: 'strict' as const,
+  typeSymbol: '@monash-study/dsh-integration/ui-contract#CourseConversationHistory',
+  create: courseConversationHistory,
+})
+
 const runTurnResultCodec = () => ({
   mode: 'strict' as const,
   typeSymbol: '@monash-study/dsh-integration/ui-contract#MonashStudyTurnResponse',
@@ -137,7 +177,7 @@ export const TYPERT_REMOTE: TypertRemoteContribution = {
       parameters: [{ name: 'request', wire: 'request', source: 'json', codec: runTurnCodec() }],
       cancellation: { parameter: 'signal' },
       result: runTurnResultCodec(),
-      sourceLocation: { file: 'packages/dsh-integration/src/ui-service.ts', line: 68, column: 3 },
+      sourceLocation: { file: 'packages/dsh-integration/src/ui-service.ts', line: 67, column: 3 },
     },
     {
       id: '@monash-study/dsh-integration#monashStudy/listCourses',
@@ -148,7 +188,43 @@ export const TYPERT_REMOTE: TypertRemoteContribution = {
       parameters: [],
       cancellation: { parameter: 'signal' },
       result: listCoursesResultCodec(),
-      sourceLocation: { file: 'packages/dsh-integration/src/ui-service.ts', line: 99, column: 3 },
+      sourceLocation: { file: 'packages/dsh-integration/src/ui-service.ts', line: 118, column: 3 },
+    },
+    {
+      id: '@monash-study/dsh-integration#monashStudy/createConversation',
+      service: 'monashStudyUi',
+      namespace: 'monashStudy',
+      method: 'createConversation',
+      invocation: { kind: 'direct' },
+      parameters: [{ name: 'courseCode', wire: 'courseCode', source: 'json', codec: stringCodec('string') }],
+      cancellation: { parameter: 'signal' },
+      result: courseConversationResultCodec(),
+      sourceLocation: { file: 'packages/dsh-integration/src/ui-service.ts', line: 129, column: 3 },
+    },
+    {
+      id: '@monash-study/dsh-integration#monashStudy/listCourseConversations',
+      service: 'monashStudyUi',
+      namespace: 'monashStudy',
+      method: 'listCourseConversations',
+      invocation: { kind: 'direct' },
+      parameters: [{ name: 'courseCode', wire: 'courseCode', source: 'json', codec: stringCodec('string') }],
+      cancellation: { parameter: 'signal' },
+      result: courseConversationListCodec(),
+      sourceLocation: { file: 'packages/dsh-integration/src/ui-service.ts', line: 141, column: 3 },
+    },
+    {
+      id: '@monash-study/dsh-integration#monashStudy/loadConversation',
+      service: 'monashStudyUi',
+      namespace: 'monashStudy',
+      method: 'loadConversation',
+      invocation: { kind: 'direct' },
+      parameters: [
+        { name: 'courseCode', wire: 'courseCode', source: 'json', codec: stringCodec('string') },
+        { name: 'sessionId', wire: 'sessionId', source: 'json', codec: stringCodec('string') },
+      ],
+      cancellation: { parameter: 'signal' },
+      result: courseConversationHistoryCodec(),
+      sourceLocation: { file: 'packages/dsh-integration/src/ui-service.ts', line: 182, column: 3 },
     },
     {
       id: '@monash-study/dsh-integration#monashStudy/runEvents',
@@ -160,7 +236,7 @@ export const TYPERT_REMOTE: TypertRemoteContribution = {
       parameters: [{ name: 'runId', wire: 'runId', source: 'json', codec: stringCodec('string') }],
       cancellation: { parameter: 'signal' },
       result: agentEventCodec(),
-      sourceLocation: { file: 'packages/dsh-integration/src/ui-service.ts', line: 111, column: 3 },
+      sourceLocation: { file: 'packages/dsh-integration/src/ui-service.ts', line: 206, column: 3 },
     },
   ],
 }
@@ -171,12 +247,18 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
   interface TypertRemoteNamespace$6d6f6e6173685374756479 {
     runTurn: (request: MonashStudyTurnRequest, signal?: AbortSignal) => Promise<RemoteResult<MonashStudyTurnResponse>>
     listCourses: (signal?: AbortSignal) => Promise<RemoteResult<readonly CourseSummary[]>>
+    createConversation: (courseCode: string, signal?: AbortSignal) => Promise<RemoteResult<CourseConversationSummary>>
+    listCourseConversations: (courseCode: string, signal?: AbortSignal) => Promise<RemoteResult<readonly CourseConversationSummary[]>>
+    loadConversation: (courseCode: string, sessionId: string, signal?: AbortSignal) => Promise<RemoteResult<CourseConversationHistory>>
     runEvents: (runId: string, signal?: AbortSignal) => AsyncIterable<MonashStudyAgentEvent>
   }
 
   interface TypertRemoteMap {
     'monashStudy/runTurn': (request: MonashStudyTurnRequest, signal?: AbortSignal) => Promise<RemoteResult<MonashStudyTurnResponse>>
     'monashStudy/listCourses': (signal?: AbortSignal) => Promise<RemoteResult<readonly CourseSummary[]>>
+    'monashStudy/createConversation': (courseCode: string, signal?: AbortSignal) => Promise<RemoteResult<CourseConversationSummary>>
+    'monashStudy/listCourseConversations': (courseCode: string, signal?: AbortSignal) => Promise<RemoteResult<readonly CourseConversationSummary[]>>
+    'monashStudy/loadConversation': (courseCode: string, sessionId: string, signal?: AbortSignal) => Promise<RemoteResult<CourseConversationHistory>>
     'monashStudy/runEvents': (runId: string, signal?: AbortSignal) => AsyncIterable<MonashStudyAgentEvent>
   }
 

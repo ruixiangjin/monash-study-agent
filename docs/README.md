@@ -12,4 +12,4 @@
 - [Identity Contract](./identity-contract.md) — stable Resource, Document, Forum Thread, and Evidence identity algorithms.
 - [Architecture Notes](./architecture.md) — concise implementation-oriented architecture notes.
 
-The architecture and Memory documents describe intended design. The Codebase Reference records what is actually implemented at its `Last verified commit`; when they differ, use the Codebase Reference for current behavior and update the design documents only when the design intent itself changes.
+The architecture and Memory documents describe intended design. The Codebase Reference records the verification commit and date, and marks any inspected uncommitted worktree behavior separately. When design intent and implementation differ, use the Codebase Reference for current behavior and update design documents only when the intended design itself changes.
