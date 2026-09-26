@@ -6,7 +6,7 @@ because the existing FIT2109 LightRAG index is keyed by these identifiers.
 
 ## Resource identity
 
-Implemented in `/Users/example/Desktop/Monash-Agent-Dev/monash-study-agent/services/knowledge-service/src/local/local-knowledge-service.ts`.
+Implemented in `services/knowledge-service/src/local/local-knowledge-service.ts`.
 
 ```text
 resourceId = resource_<sha256(source + NUL + rootId + NUL + relativePath)[0:24]>
@@ -21,7 +21,7 @@ Consequences:
 
 ## Document identity
 
-Implemented in `/Users/example/Desktop/Monash-Agent-Dev/monash-study-agent/services/knowledge-service/src/normalization/resource-normalizer.ts`.
+Implemented in `services/knowledge-service/src/normalization/resource-normalizer.ts`.
 
 For ordinary one-document resources:
 
@@ -41,7 +41,7 @@ Consequences:
 
 ## Forum thread identity
 
-Implemented in `/Users/example/Desktop/Monash-Agent-Dev/monash-study-agent/services/knowledge-service/src/normalization/forum-normalizer.ts`.
+Implemented in `services/knowledge-service/src/normalization/forum-normalizer.ts`.
 
 Forum resources are split into one document per thread. The id is derived from
 the normalized course part and the Ed thread id:
@@ -56,7 +56,7 @@ thread id creates a new document id.
 
 ## Evidence identity
 
-Implemented in `/Users/example/Desktop/Monash-Agent-Dev/monash-study-agent/services/knowledge-service/src/lightrag/lightrag-knowledge-service.ts`.
+Implemented in `services/knowledge-service/src/lightrag/lightrag-knowledge-service.ts`.
 
 ```text
 evidenceId = evidence_lightrag_<sha256(course + LF + documentId + LF + dedupeKey)[0:24]>

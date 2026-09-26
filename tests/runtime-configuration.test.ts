@@ -67,6 +67,7 @@ test('does not depend on cwd or the package location when explicit root/config a
         workers: fromB.workers,
       },
     )
+    assert.equal(fromA.resourceManifestPath, join(root, 'data/runtime/resources.json'))
   } finally {
     process.chdir(originalCwd)
   }

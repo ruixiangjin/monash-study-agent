@@ -123,7 +123,7 @@ The product contract is provider-neutral: `ResearchTask` carries the delegated o
 ```text
 Configured course roots
   → LocalKnowledgeService.scan()
-  → ResourceManifest / resources/resources.json
+  → ResourceManifest / data/runtime/resources.json (local, ignored)
   → NormalizationService
   → NormalizedDocument JSON + Markdown under data/normalized/
   → LightRAGSyncService
@@ -166,7 +166,7 @@ Main Agent query
 | Student Context snapshot | `StudentContextBuilder`; actual current type is `StudentContext`, not a separate `StudentContextSnapshot` class | In-memory prompt projection | `MemoryStudentContextBuilder.build()` |
 | Long-term Memory | `MemoryService` / `MemoryStore` | Shared SQLite database | baseline/targeted recall, `manage_memory`, and Post-turn Observation |
 | Memory events | `MemoryStore` | `memory_events` table | `MemoryStore.#writeEvent()` and `listEvents()` |
-| Resource state | `LocalKnowledgeService` and generated manifest | Source files plus `resources/resources.json` | `scan-resources.ts`, `loadManifest()` |
+| Resource state | `LocalKnowledgeService` and generated manifest | Source files plus ignored `data/runtime/resources.json` | `scan-resources.ts`, `loadManifest()` |
 | Normalization state | `NormalizationService` | JSON state files under `data/normalized/.state/` and normalized JSON/Markdown | `normalizeWithStatus()` |
 | LightRAG index state | `LightRAGIndexStateStore` | `lightrag_index_state`, sync run and operation tables in SQLite | `LightRAGSyncService` |
 | Evidence | `LightRAGKnowledgeService` creates it; `StudyToolBridge` deduplicates it for the active run | In-memory for a turn; Memory tool results stay outside this layer | `StudyTurnResult.evidence` |
@@ -365,7 +365,7 @@ turn path.
 | `config/runtime.json` | LightRAG working root, SQLite path, DeepSeek model URL, BGE-M3, query limits |
 | `config/sources.example.json` | Portable Ed/Moodle root configuration example |
 | `.env.example` | Secret-name template containing `DEEPSEEK_API_KEY` only |
-| `resources/resources.json` | Generated current Resource Manifest snapshot; source of tool-smoke resource reads |
+| `data/runtime/resources.json` | Locally generated, ignored Resource Manifest; source of tool-smoke resource reads |
 | `package.json` | Root scripts, workspace dependencies, and test/build commands |
 | `pnpm-workspace.yaml` | Workspace globs and explicit native build permissions |
 | `tsconfig.json` | Strict no-emit typecheck scope |
@@ -858,7 +858,7 @@ The same `MemoryService` instance now serves two write triggers. `manage_memory`
 
 ### Resource and normalization
 
-`LocalKnowledgeService.scan()` recursively reads configured source roots, ignores hidden/generated names, uses downloader `last sync.json` hints when available, derives course/week/type metadata, and computes stable SHA-256 resource ids/hashes. `resources/resources.json` is a generated snapshot, not the future Resource Catalog.
+`LocalKnowledgeService.scan()` recursively reads configured source roots, ignores hidden/generated names, uses downloader `last sync.json` hints when available, derives course/week/type metadata, and computes stable SHA-256 resource ids/hashes. The ignored `data/runtime/resources.json` is generated locally, not the future Resource Catalog.
 
 `NormalizationService` chooses the first `ResourceNormalizer` that supports a Resource:
 
@@ -1352,7 +1352,7 @@ path; for current Web behavior, use Sections 2, 8, 13, and 14.
 - `StudyTurnResult` carries Evidence and tool names but does not persist a turn artifact or raw tool trace.
 - `Tool Registry`, `Tool Execution Context`, and generic `Tool Result` abstractions are not yet separate TypeScript interfaces; the current child registration and bridge switch are concrete implementations.
 - `connectors/ed` and `connectors/moodle` are type seams, not live synchronizers in this repository.
-- `resources/resources.json` is a generated snapshot. A durable Resource Catalog is still planned.
+- The ignored `data/runtime/resources.json` is generated locally. A durable Resource Catalog is still planned.
 - LightRAG index state and Memory share the SQLite file but not domain ownership or retrieval logic.
 - Real provider smokes require local Python environments and, where applicable, `DEEPSEEK_API_KEY`; they are intentionally separate from the default unit test command.
 - The real Round 4 smoke passed under explicit authorization using only the required FIT2109 research inputs. It used the existing ignored LightRAG runtime database/cache and created no separate temporary data requiring cleanup. Electron remains unimplemented.

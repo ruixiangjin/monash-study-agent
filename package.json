@@ -13,7 +13,7 @@
     "check": "pnpm run typecheck",
     "lightrag": "tsx scripts/lightrag.ts",
     "normalize": "tsx scripts/normalize.ts",
-    "scan": "tsx scripts/scan-resources.ts --config config/sources.local.json --output resources/resources.json",
+    "scan": "tsx scripts/scan-resources.ts --config config/sources.local.json --output data/runtime/resources.json",
     "smoke:lightrag": "tsx scripts/smoke-lightrag.ts",
     "smoke:memory": "tsx scripts/memory-smoke.ts",
     "test": "tsx --test tests/**/*.test.ts",

@@ -56,9 +56,9 @@ test('preserves source code and converts CSV to a Markdown table', async (contex
 
 test('splits real Ed downloader schema into stable thread documents', async (context) => {
   const directory = await testDirectory(context)
-  const discussionDirectory = join(directory, 'FIT2109 Computer science workshop', 'Discussions')
+  const discussionDirectory = join(directory, 'FIT2109 Example Course', 'Discussions')
   await mkdir(discussionDirectory, { recursive: true })
-  const path = join(discussionDirectory, 'FIT2109 Computer science workshop - Discussions.json')
+  const path = join(discussionDirectory, 'FIT2109 Example Course - Discussions.json')
   await copyFile(resolve('tests/fixtures/ed-discussions.json'), path)
   const resource = await resourceFor(path, {
     source: 'ed',
@@ -79,9 +79,9 @@ test('splits real Ed downloader schema into stable thread documents', async (con
   assert.equal(first.locator.threadId, 'thread-101')
   assert.equal(first.locator.sourceUrl, 'https://example.invalid/ed/courses/demo-fit2109/discussion/101')
   assert.match(first.text, /## Original Post/)
-  assert.match(first.text, /### Accepted Answer — Lecturer One \(staff\)/)
-  assert.match(first.text, /#### Reply to Answer — Student One \(student\)/)
-  assert.match(first.text, /Week 5 workshop is included/)
+  assert.match(first.text, /### Accepted Answer — Demo Tutor \(staff\)/)
+  assert.match(first.text, /#### Reply to Answer — Demo Student \(student\)/)
+  assert.match(first.text, /Topic C is part of this mock example/)
 })
 
 test('reuses unchanged output for the same source hash and normalizer version', async (context) => {

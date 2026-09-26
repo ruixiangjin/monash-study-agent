@@ -90,7 +90,7 @@ export function loadRuntimeConfig(
 
   const manifestInput = requested.resourceManifestPath ?? environmentManifest
   const resourceManifestPath = manifestInput === undefined
-    ? pathValue(join(applicationRoot.value, 'resources', 'resources.json'), 'applicationRoot default resource manifest')
+    ? pathValue(join(applicationRoot.value, 'data', 'runtime', 'resources.json'), 'applicationRoot default resource manifest')
     : pathValue(
       resolveAgainst(applicationRoot.value, manifestInput),
       requested.resourceManifestPath === undefined ? 'MONASH_STUDY_AGENT_RESOURCE_MANIFEST' : 'explicit resourceManifestPath',

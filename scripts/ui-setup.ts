@@ -1,6 +1,5 @@
 import { spawn } from 'node:child_process'
 import { readFile } from 'node:fs/promises'
-import { homedir } from 'node:os'
 import { join } from 'node:path'
 
 import { ensureDeclarativeWebProfile } from './dsh-web-profile.js'
@@ -9,8 +8,7 @@ import { resolveUiPaths, verifyUiPaths } from './ui-paths.js'
 import { verifyDshUiPackage } from './verify-dsh-ui-package.js'
 
 const paths = resolveUiPaths()
-const dshHome = join(homedir(), '.dsh')
-const webProfile = join(dshHome, 'profiles/web')
+const webProfile = defaultWebProfileDirectory()
 
 await verifyUiPaths(paths)
 await run('pnpm', ['run', 'build'], paths.productRoot)

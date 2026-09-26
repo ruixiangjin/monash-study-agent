@@ -98,8 +98,8 @@ can drain the terminal event.
 
 ### Courses and persisted conversations
 
-`listCourses` returns `{ courseCode, resourceCount }` from
-`resources/resources.json`. The page lists conversations separately for the
+`listCourses` returns `{ courseCode, resourceCount }` from the ignored
+`data/runtime/resources.json`. The page lists conversations separately for the
 selected course. `createConversation` creates the authoritative DSH Session;
 the course code is included in the generated session id. `loadConversation`
 reads DSH session history and projects user and assistant text into the chat.

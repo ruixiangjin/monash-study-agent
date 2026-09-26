@@ -27,7 +27,7 @@ The normalization foundation additionally provides:
 - incremental reuse based on source hash and normalizer version; and
 - inspectable Markdown and JSON output under `data/normalized/`.
 
-The current generated Manifest snapshot contains 344 resources: FIT2014 (120), FIT2102 (58), FIT2109 (92), ETW2001 (57), FIT2081 (16), and one unclassified resource. It remains at `resources/resources.json`; a durable Resource Catalog is still planned.
+The generated Resource Manifest is local study data at `data/runtime/resources.json` and is excluded from Git. Run `pnpm scan` after configuring your own course roots; a durable Resource Catalog is still planned.
 
 The long-term Memory capability provides canonical current-state resolution, append-oriented learning episodes, SQLite FTS plus independent BGE-M3 embeddings, explainable scoped hybrid recall, source-priority conflict handling, and bounded per-course Episode lifecycle management. DeepSeek Flash extraction and BGE-M3 have concrete adapters. `pnpm agent-memory-smoke` covers real post-turn formation, explicit memory management, and recall in a distinct Legacy SDK session; it does not certify the current Web research or session-resume path.
 
@@ -56,13 +56,13 @@ monash-study-agent/
 │   └── moodle/                Future Moodle sync and live connector
 ├── config/                    Local source registration
 ├── scripts/                   Product maintenance commands
-├── resources/                 Generated Resource Manifest
+├── data/runtime/              Local manifest, databases, indexes, and caches
 ├── data/normalized/           Generated normalized content and incremental state
 ├── docs/                      Product architecture
 └── tests/                     Cross-module behavior tests
 ```
 
-Runtime-generated databases, indexes, logs, and caches will live under `data/runtime/` and are excluded from Git.
+Runtime-generated manifests, databases, indexes, logs, and caches live under `data/runtime/` and are excluded from Git.
 
 ## Commands
 
@@ -99,7 +99,7 @@ pnpm ui
 macOS: double-click `Start Monash Study Agent.command`. It uses the existing
 Node.js, pnpm, and `node_modules`; it does not install or upgrade dependencies.
 
-`config/sources.local.json` identifies the current machine's local course directories and is ignored by Git. Use `config/sources.example.json` as the portable template when configuring another machine. Scanning reads source files and downloader manifests without modifying the course libraries. Non-secret LightRAG runtime settings are shared through `config/runtime.json`; `.env` contains only `DEEPSEEK_API_KEY`.
+`config/sources.local.json` identifies the current machine's local course directories and is ignored by Git. Use `config/sources.example.json` as the portable template when configuring another machine, then run `pnpm scan` before starting the UI. The generated manifest stays at ignored `data/runtime/resources.json`. Scanning reads source files and downloader manifests without modifying the course libraries. Non-secret LightRAG runtime settings are shared through `config/runtime.json`; `.env` contains only `DEEPSEEK_API_KEY`.
 
 ### LightRAG model runtime
 

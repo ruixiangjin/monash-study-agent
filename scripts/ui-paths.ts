@@ -23,7 +23,7 @@ export function resolveUiPaths(environment: NodeJS.ProcessEnv = process.env): Ui
     dshRoot,
     dshLauncher: join(dshRoot, 'apps/cli/lib/bin.js'),
     runtimeConfig: join(productRoot, 'config/runtime.json'),
-    resourceManifest: join(productRoot, 'resources/resources.json'),
+    resourceManifest: join(productRoot, 'data/runtime/resources.json'),
     runtimePatch: join(productRoot, 'config/single-runtime.cordis.patch.yml'),
     presetRoot: join(productRoot, 'config/agent-presets'),
     dshUiPluginRuntime: join(dshRoot, '.monash-study/dsh-ui-plugin'),
@@ -33,17 +33,17 @@ export function resolveUiPaths(environment: NodeJS.ProcessEnv = process.env): Ui
 export async function verifyUiPaths(paths: UiPaths): Promise<void> {
   await requiredFile(paths.dshLauncher, 'DSH built launcher')
   await requiredFile(paths.runtimeConfig, 'runtime config')
-  await requiredFile(paths.resourceManifest, 'resource manifest')
+  await requiredFile(paths.resourceManifest, 'resource manifest', 'Configure config/sources.local.json and run pnpm scan to create it locally.')
   await requiredFile(paths.runtimePatch, 'single-runtime DSH patch')
   await requiredFile(join(paths.presetRoot, 'monash-study-agent/agent.cordis.yml'), 'Monash Study Agent preset')
   await requiredFile(join(paths.dshUiPluginRuntime, 'lib/index.js'), 'repository-local DSH UI runtime')
   await requiredFile(join(paths.dshUiPluginRuntime, 'package.json'), 'repository-local DSH UI runtime manifest')
 }
 
-async function requiredFile(path: string, label: string): Promise<void> {
+async function requiredFile(path: string, label: string, hint?: string): Promise<void> {
   try {
     await access(path)
   } catch {
-    throw new Error(`Missing ${label}: ${path}`)
+    throw new Error(`Missing ${label}: ${path}${hint === undefined ? '' : `. ${hint}`}`)
   }
 }
